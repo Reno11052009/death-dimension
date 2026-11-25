@@ -27,6 +27,7 @@ public final class DeathDimensionClient {
     }
 
     private static void handleConfigSync(ConfigSyncPayload payload) {
+        DeathDimensionClientEvents.markServerHasMod();
         if (!payload.openGui()) {
             return;
         }

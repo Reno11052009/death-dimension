@@ -6,7 +6,6 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.common.util.INBTSerializable;
 
@@ -237,11 +236,15 @@ public class PlayerDeathData implements INBTSerializable<CompoundTag> {
         return savedInvulnerable;
     }
 
-    public void saveAbilities(Abilities abilities) {
+    public void saveAbilities(ServerPlayer player) {
+        saveAbilities(player.mayFly(), player.getAbilities().flying, player.getAbilities().invulnerable);
+    }
+
+    public void saveAbilities(boolean mayFly, boolean flying, boolean invulnerable) {
         this.hasSavedAbilities = true;
-        this.savedMayFly = abilities.mayfly;
-        this.savedFlying = abilities.flying;
-        this.savedInvulnerable = abilities.invulnerable;
+        this.savedMayFly = mayFly;
+        this.savedFlying = flying;
+        this.savedInvulnerable = invulnerable;
     }
 
     public void clearSavedAbilities() {

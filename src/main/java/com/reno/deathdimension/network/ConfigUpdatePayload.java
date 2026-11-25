@@ -2,12 +2,14 @@ package com.reno.deathdimension.network;
 
 import com.reno.deathdimension.DeathDimension;
 import com.reno.deathdimension.config.ModConfig;
+import com.reno.deathdimension.dimension.DeathDimensionSavedData;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -39,6 +41,10 @@ public record ConfigUpdatePayload(ModConfig.ConfigSnapshot snapshot) implements 
             }
 
             ModConfig.applySnapshot(payload.snapshot(), true);
+            MinecraftServer server = player.getServer();
+            if (server != null) {
+                DeathDimensionSavedData.get(server).setCustomSpawn(ModConfig.spawnX, ModConfig.spawnY, ModConfig.spawnZ);
+            }
             PacketDistributor.sendToAllPlayers(new ConfigSyncPayload(ModConfig.captureSnapshot(), false));
             player.sendSystemMessage(
                     Component.translatable("message.deathdimension.config_saved").withStyle(ChatFormatting.GREEN)

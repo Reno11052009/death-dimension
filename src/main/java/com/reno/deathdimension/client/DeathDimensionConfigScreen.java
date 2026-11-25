@@ -88,7 +88,7 @@ public final class DeathDimensionConfigScreen extends Screen {
 
     public static Screen createFromModList(@Nullable Screen parent) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null || !mc.player.hasPermissions(2)) {
+        if (mc.player == null || mc.level == null || !DeathDimensionClientEvents.hasServerMod() || !mc.player.hasPermissions(2)) {
             return new OpDeniedScreen(parent);
         }
         return new DeathDimensionConfigScreen(parent, ModConfig.captureSnapshot());
@@ -134,9 +134,9 @@ public final class DeathDimensionConfigScreen extends Screen {
         this.spawnZBox = null;
         this.cooldownDurationBox = null;
 
-        // Top tab bar
+        // Top tab bar (5 * 76 + 4 * 4 = 396px, fits inside 427px at 854x480 GUI scale 2)
         Tab[] tabs = Tab.values();
-        int tabWidth = 84;
+        int tabWidth = 76;
         int gap = 4;
         int totalTabW = tabs.length * tabWidth + (tabs.length - 1) * gap;
         int startX = (this.width - totalTabW) / 2;
@@ -249,17 +249,25 @@ public final class DeathDimensionConfigScreen extends Screen {
         return box;
     }
 
+    private static double parseFiniteDouble(String raw) {
+        double value = Double.parseDouble(raw.trim());
+        if (!Double.isFinite(value)) {
+            throw new NumberFormatException("non-finite");
+        }
+        return value;
+    }
+
     private boolean commitVisibleInputs() {
         this.errorMessage = null;
         try {
             if (this.spawnXBox != null) {
-                this.spawnX = Double.parseDouble(this.spawnXBox.getValue().trim());
+                this.spawnX = parseFiniteDouble(this.spawnXBox.getValue());
             }
             if (this.spawnYBox != null) {
-                this.spawnY = Double.parseDouble(this.spawnYBox.getValue().trim());
+                this.spawnY = parseFiniteDouble(this.spawnYBox.getValue());
             }
             if (this.spawnZBox != null) {
-                this.spawnZ = Double.parseDouble(this.spawnZBox.getValue().trim());
+                this.spawnZ = parseFiniteDouble(this.spawnZBox.getValue());
             }
             if (this.cooldownDurationBox != null) {
                 long parsed = Long.parseLong(this.cooldownDurationBox.getValue().trim());

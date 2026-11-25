@@ -1,5 +1,6 @@
 package com.reno.deathdimension;
 
+import com.reno.deathdimension.client.DeathDimensionClientEvents;
 import com.reno.deathdimension.client.TransitionOverlayLayer;
 import com.reno.deathdimension.config.ModConfig;
 import com.reno.deathdimension.config.ReturnMode;
@@ -9,7 +10,6 @@ import com.reno.deathdimension.player.PlayerDeathData;
 import io.netty.buffer.Unpooled;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.level.Level;
 
 import java.util.concurrent.atomic.AtomicLong;
@@ -97,6 +97,10 @@ public final class DeathDimensionSelfCheck {
 
         assertTrue(TransitionOverlayLayer.reviveFlashAlpha(0.0) > 0.7, "revive flash starts bright");
         assertTrue(TransitionOverlayLayer.reviveFlashAlpha(0.6) == 0.0, "revive flash clears cleanly");
+
+        assertEq(89.0f, DeathDimensionClientEvents.clampPitch(120.0f), "camera pitch clamped to +89");
+        assertEq(-89.0f, DeathDimensionClientEvents.clampPitch(-110.0f), "camera pitch clamped to -89");
+        assertEq(12.5f, DeathDimensionClientEvents.clampPitch(12.5f), "camera pitch in range preserved");
     }
 
     private static void checkTimeFormatting() {
@@ -117,11 +121,7 @@ public final class DeathDimensionSelfCheck {
         try {
             PlayerDeathData data = new PlayerDeathData();
             data.recordOrigin(Level.NETHER, 120.5, 70.0, -250.25, 90.0f, 15.0f);
-            Abilities abilities = new Abilities();
-            abilities.mayfly = false;
-            abilities.flying = false;
-            abilities.invulnerable = false;
-            data.saveAbilities(abilities);
+            data.saveAbilities(false, false, false);
             data.setInDeathDimension(true);
 
             CooldownManager.startCooldown(data, 60L);

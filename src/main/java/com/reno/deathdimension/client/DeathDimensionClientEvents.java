@@ -13,6 +13,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
@@ -33,12 +34,25 @@ public final class DeathDimensionClientEvents {
 
     private record ActiveRevive(long startNs, ReviveAnimationStyle style) {}
 
+    private static volatile boolean serverHasMod = false;
     private static volatile long awaitingEyeOpenStartNs = -1L;
     private static volatile long eyeOpenStartNs = -1L;
     private static volatile ActiveRevive localRevive = null;
 
     private static final Map<Integer, ActiveRevive> revivingPlayers = new HashMap<>();
     private static final Set<Integer> pushedPlayersThisFrame = new HashSet<>();
+
+    public static void markServerHasMod() {
+        serverHasMod = true;
+    }
+
+    public static boolean hasServerMod() {
+        return serverHasMod;
+    }
+
+    public static float clampPitch(float pitch) {
+        return Math.max(-89.0f, Math.min(89.0f, pitch));
+    }
 
     public static void handleTransitionPayload(DeathTransitionPayload payload) {
         long now = System.nanoTime();
@@ -111,11 +125,14 @@ public final class DeathDimensionClientEvents {
 
     @SubscribeEvent
     public void onClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        serverHasMod = false;
         awaitingEyeOpenStartNs = -1L;
         eyeOpenStartNs = -1L;
         localRevive = null;
         revivingPlayers.clear();
         pushedPlayersThisFrame.clear();
+        // Restore local config so a previous server's ConfigSyncPayload never leaks into another session.
+        ModConfig.reloadFromDisk();
     }
 
     @SubscribeEvent
@@ -123,7 +140,7 @@ public final class DeathDimensionClientEvents {
         if (!(event.getNewScreen() instanceof DeathScreen)) {
             return;
         }
-        if (!ModConfig.enableMod || !ModConfig.enableDeathTeleport || !ModConfig.skipDeathScreen) {
+        if (!serverHasMod || !ModConfig.enableMod || !ModConfig.enableDeathTeleport || !ModConfig.skipDeathScreen) {
             return;
         }
 
@@ -183,7 +200,7 @@ public final class DeathDimensionClientEvents {
         double eyeProgress = getEyeOpenProgress();
         if (eyeProgress >= 0.0 && eyeProgress < 1.0) {
             double closed = 1.0 - TransitionOverlayLayer.eyeOpenFactor(eyeProgress);
-            event.setPitch(event.getPitch() + (float) (14.0 * closed));
+            event.setPitch(clampPitch(event.getPitch() + (float) (14.0 * closed)));
         }
 
         double reviveProgress = getLocalReviveProgress();
@@ -192,21 +209,21 @@ public final class DeathDimensionClientEvents {
             double inv = 1.0 - TransitionOverlayLayer.easeOutCubic(reviveProgress);
             switch (style) {
                 case AWAKENING -> {
-                    event.setPitch(event.getPitch() + (float) (26.0 * inv));
+                    event.setPitch(clampPitch(event.getPitch() + (float) (26.0 * inv)));
                     event.setRoll(event.getRoll() + (float) (11.0 * Math.sin(Math.PI * reviveProgress) * (1.0 - reviveProgress)));
                 }
                 case SPIRAL_ASCENT -> {
-                    event.setPitch(event.getPitch() - (float) (18.0 * inv));
+                    event.setPitch(clampPitch(event.getPitch() - (float) (18.0 * inv)));
                     event.setRoll(event.getRoll() + (float) (16.0 * Math.sin(2.0 * Math.PI * reviveProgress) * (1.0 - reviveProgress)));
                 }
                 case SHOCKWAVE -> {
                     double damp = (1.0 - reviveProgress) * (1.0 - reviveProgress);
                     float shakePitch = (float) (6.0 * Math.sin(28.0 * reviveProgress) * damp);
                     float shakeRoll = (float) (7.5 * Math.cos(24.0 * reviveProgress) * damp);
-                    event.setPitch(event.getPitch() + shakePitch);
+                    event.setPitch(clampPitch(event.getPitch() + shakePitch));
                     event.setRoll(event.getRoll() + shakeRoll);
                 }
-                case GENTLE_DRIFT -> event.setPitch(event.getPitch() + (float) (8.0 * inv));
+                case GENTLE_DRIFT -> event.setPitch(clampPitch(event.getPitch() + (float) (8.0 * inv)));
                 case NONE -> {}
             }
         }
@@ -242,7 +259,7 @@ public final class DeathDimensionClientEvents {
         }
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onRenderPlayerPre(RenderPlayerEvent.Pre event) {
         if (!ModConfig.enableReviveAnimation) {
             return;

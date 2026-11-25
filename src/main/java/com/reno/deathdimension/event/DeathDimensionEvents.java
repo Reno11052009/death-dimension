@@ -32,12 +32,17 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 public final class DeathDimensionEvents {
 
+    private static boolean isHardcore(ServerPlayer player) {
+        MinecraftServer server = player.getServer();
+        return server != null && server.isHardcore();
+    }
+
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onLivingDeath(LivingDeathEvent event) {
         if (event.isCanceled() || !ModConfig.enableMod || !ModConfig.enableDeathTeleport) {
             return;
         }
-        if (!(event.getEntity() instanceof ServerPlayer player)) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || isHardcore(player)) {
             return;
         }
 
@@ -55,7 +60,7 @@ public final class DeathDimensionEvents {
                     player.getXRot()
             );
             if (!data.hasSavedAbilities()) {
-                data.saveAbilities(player.getAbilities());
+                data.saveAbilities(player);
             }
         }
 
@@ -98,11 +103,12 @@ public final class DeathDimensionEvents {
         }
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onPlayerClone(PlayerEvent.Clone event) {
         if (!event.isWasDeath() || !(event.getEntity() instanceof ServerPlayer newPlayer)) {
             return;
         }
+        // Runs at LOWEST so NeoForge's AttachmentInternals (NORMAL) has already copied PLAYER_DEATH_DATA.
         PlayerDeathData data = newPlayer.getData(ModRegistries.PLAYER_DEATH_DATA.get());
         data.restoreInventoryAndClear(newPlayer);
         data.restoreExperienceAndClear(newPlayer);
@@ -113,7 +119,7 @@ public final class DeathDimensionEvents {
         if (event.isFromEndFight() || !ModConfig.enableMod || !ModConfig.enableDeathTeleport) {
             return;
         }
-        if (!(event.getEntity() instanceof ServerPlayer player)) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || isHardcore(player)) {
             return;
         }
 
@@ -149,7 +155,7 @@ public final class DeathDimensionEvents {
         if (event.isEndConquered() || !ModConfig.enableMod || !ModConfig.enableDeathTeleport) {
             return;
         }
-        if (!(event.getEntity() instanceof ServerPlayer player)) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || isHardcore(player)) {
             return;
         }
 
@@ -256,7 +262,7 @@ public final class DeathDimensionEvents {
         if (inDeathDim) {
             data.setInDeathDimension(true);
             if (!data.hasSavedAbilities()) {
-                data.saveAbilities(player.getAbilities());
+                data.saveAbilities(player);
             }
             data.recordDeathDimPosition(
                     player.getX(),
@@ -269,7 +275,7 @@ public final class DeathDimensionEvents {
             player.fallDistance = 0.0f;
             player.setDeltaMovement(Vec3.ZERO);
             if (ModConfig.enableMod && ModConfig.enableFreeMovement) {
-                player.getAbilities().mayfly = true;
+                PlayerTeleportHandler.ensureDeathFlightAttribute(player);
                 player.getAbilities().flying = true;
             }
 
@@ -302,7 +308,7 @@ public final class DeathDimensionEvents {
             data.clearDeathState();
         } else if (event.getTo().equals(ModRegistries.DEATH_DIMENSION)) {
             if (!data.hasSavedAbilities()) {
-                data.saveAbilities(player.getAbilities());
+                data.saveAbilities(player);
             }
             data.setInDeathDimension(true);
             if (ModConfig.enableMod) {
@@ -372,7 +378,7 @@ public final class DeathDimensionEvents {
             rescueFromDeepVoid(player);
         }
 
-        if (ModConfig.enableFreeMovement && !player.getAbilities().mayfly) {
+        if (ModConfig.enableFreeMovement && !player.mayFly()) {
             PlayerTeleportHandler.applyDeathAbilities(player);
         }
 

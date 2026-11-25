@@ -180,6 +180,8 @@ public final class DeathDimensionCommands {
 
     private static int setSpawn(CommandSourceStack source, double x, double y, double z) {
         DeathDimensionSavedData.get(source.getServer()).setCustomSpawn(x, y, z);
+        ModConfig.setSpawnPosition(x, y, z);
+        PacketDistributor.sendToAllPlayers(new ConfigSyncPayload(ModConfig.captureSnapshot(), false));
         source.sendSuccess(
                 () -> Component.translatable(
                         "message.deathdimension.spawn_set",

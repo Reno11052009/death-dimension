@@ -218,6 +218,21 @@ public final class ModConfig {
         }
     }
 
+    public static void setSpawnPosition(double x, double y, double z) {
+        double safeX = clampFinite(x, MIN_COORD, MAX_COORD, 0.0);
+        double safeY = clampFinite(y, MIN_Y, MAX_Y, 100.0);
+        double safeZ = clampFinite(z, MIN_COORD, MAX_COORD, 0.0);
+        spawnX = safeX;
+        spawnY = safeY;
+        spawnZ = safeZ;
+        if (SPEC.isLoaded()) {
+            SPAWN_X.set(safeX);
+            SPAWN_Y.set(safeY);
+            SPAWN_Z.set(safeZ);
+            SPEC.save();
+        }
+    }
+
     public static ConfigSnapshot captureSnapshot() {
         return new ConfigSnapshot(
                 enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage,

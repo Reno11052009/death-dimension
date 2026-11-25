@@ -23,12 +23,18 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.NeoForgeMod;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 public final class PlayerTeleportHandler {
+    private static final ResourceLocation DEATH_FLIGHT_MODIFIER_ID =
+            ResourceLocation.fromNamespaceAndPath(DeathDimension.MODID, "death_flight");
+
     private PlayerTeleportHandler() {}
 
     public static boolean isInDeathDimension(ServerPlayer player) {
@@ -59,7 +65,7 @@ public final class PlayerTeleportHandler {
         PlayerDeathData data = player.getData(ModRegistries.PLAYER_DEATH_DATA.get());
 
         if (!data.hasSavedAbilities()) {
-            data.saveAbilities(player.getAbilities());
+            data.saveAbilities(player);
         }
 
         boolean wasAlreadyInDeathDim = data.isInDeathDimension();
@@ -165,6 +171,9 @@ public final class PlayerTeleportHandler {
         data.clearDeathState();
 
         safeTeleport(player, data, targetLevel, targetPos.x, targetPos.y, targetPos.z, targetPos.yRot, targetPos.xRot);
+        // Brief revive grace period (3s) to prevent instant death-loops at hazardous death sites.
+        player.invulnerableTime = Math.max(player.invulnerableTime, 60);
+        player.clearFire();
         player.sendSystemMessage(Component.translatable("message.deathdimension.returned").withStyle(ChatFormatting.GREEN));
 
         if (ModConfig.enableReturnTitle) {
@@ -233,19 +242,34 @@ public final class PlayerTeleportHandler {
         }
     }
 
+    public static void ensureDeathFlightAttribute(ServerPlayer player) {
+        AttributeInstance flightAttr = player.getAttribute(NeoForgeMod.CREATIVE_FLIGHT);
+        if (flightAttr != null && !flightAttr.hasModifier(DEATH_FLIGHT_MODIFIER_ID)) {
+            flightAttr.addPermanentModifier(new AttributeModifier(
+                    DEATH_FLIGHT_MODIFIER_ID,
+                    1.0,
+                    AttributeModifier.Operation.ADD_VALUE
+            ));
+        }
+    }
+
     public static void applyDeathAbilities(ServerPlayer player) {
         if (!ModConfig.enableFreeMovement) {
             return;
         }
-        Abilities abilities = player.getAbilities();
-        abilities.mayfly = true;
-        abilities.flying = true;
+        ensureDeathFlightAttribute(player);
+        player.getAbilities().flying = true;
         player.fallDistance = 0.0f;
         player.setDeltaMovement(Vec3.ZERO);
         player.onUpdateAbilities();
     }
 
     public static void restoreAbilities(ServerPlayer player, PlayerDeathData data) {
+        AttributeInstance flightAttr = player.getAttribute(NeoForgeMod.CREATIVE_FLIGHT);
+        if (flightAttr != null && flightAttr.hasModifier(DEATH_FLIGHT_MODIFIER_ID)) {
+            flightAttr.removeModifier(DEATH_FLIGHT_MODIFIER_ID);
+        }
+
         if (!ModConfig.restorePlayerAbilities) {
             data.clearSavedAbilities();
             return;
@@ -253,17 +277,14 @@ public final class PlayerTeleportHandler {
 
         Abilities abilities = player.getAbilities();
         if (player.isCreative() || player.isSpectator()) {
-            abilities.mayfly = true;
             if (player.isSpectator()) {
                 abilities.flying = true;
             }
         } else if (data.hasSavedAbilities()) {
-            abilities.mayfly = data.isSavedMayFly();
-            abilities.flying = data.isSavedMayFly() && data.isSavedFlying();
+            abilities.flying = player.mayFly() && data.isSavedFlying();
             abilities.invulnerable = data.isSavedInvulnerable();
         } else {
-            abilities.mayfly = false;
-            abilities.flying = false;
+            abilities.flying = player.mayFly() && abilities.flying;
             abilities.invulnerable = false;
         }
 
