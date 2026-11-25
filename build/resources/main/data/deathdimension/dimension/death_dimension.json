@@ -1,0 +1,10 @@
+{
+  "type": "deathdimension:death_dimension",
+  "generator": {
+    "type": "deathdimension:void",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "deathdimension:death_void"
+    }
+  }
+}
