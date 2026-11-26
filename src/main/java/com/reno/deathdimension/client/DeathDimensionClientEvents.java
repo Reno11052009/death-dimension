@@ -6,11 +6,17 @@ import com.reno.deathdimension.config.ModConfig;
 import com.reno.deathdimension.config.ReviveAnimationStyle;
 import com.reno.deathdimension.network.DeathTransitionPayload;
 import com.reno.deathdimension.registry.ModRegistries;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.DeathScreen;
+import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.neoforged.bus.api.EventPriority;
@@ -41,6 +47,7 @@ public final class DeathDimensionClientEvents {
 
     private static final Map<Integer, ActiveRevive> revivingPlayers = new HashMap<>();
     private static final Set<Integer> pushedPlayersThisFrame = new HashSet<>();
+    private static Button titleUpdateButton;
 
     public static void markServerHasMod() {
         serverHasMod = true;
@@ -133,6 +140,118 @@ public final class DeathDimensionClientEvents {
         pushedPlayersThisFrame.clear();
         // Restore local config so a previous server's ConfigSyncPayload never leaks into another session.
         ModConfig.reloadFromDisk();
+    }
+
+    @SubscribeEvent
+    public void onTitleScreenInit(ScreenEvent.Init.Post event) {
+        if (!(event.getScreen() instanceof TitleScreen)) {
+            titleUpdateButton = null;
+            return;
+        }
+        ModAutoUpdater.triggerInitialCheckIfNeeded();
+
+        Button btn = Button.builder(Component.translatable("gui.deathdimension.updater.btn_check"), b -> onTitleUpdateButtonClick())
+                .bounds(6, 6, 108, 20)
+                .build();
+        titleUpdateButton = btn;
+        syncTitleUpdateButton(btn, ModAutoUpdater.getStatus());
+        event.addListener(btn);
+    }
+
+    @SubscribeEvent
+    public void onTitleScreenRender(ScreenEvent.Render.Post event) {
+        if (!(event.getScreen() instanceof TitleScreen)) {
+            return;
+        }
+        ModAutoUpdater.StatusSnapshot snapshot = ModAutoUpdater.getStatus();
+        if (titleUpdateButton != null) {
+            syncTitleUpdateButton(titleUpdateButton, snapshot);
+        }
+        if (snapshot.state() == ModAutoUpdater.State.IDLE) {
+            return;
+        }
+
+        Component statusText = formatUpdaterStatus(snapshot);
+        int textColor = switch (snapshot.state()) {
+            case UP_TO_DATE -> 0x55FF55;
+            case UPDATE_AVAILABLE, DOWNLOADING -> 0xFFAA00;
+            case INSTALLED_RESTART_REQUIRED -> 0x55FFFF;
+            case FAILED -> 0xFF5555;
+            default -> 0xCCCCCC;
+        };
+
+        GuiGraphics guiGraphics = event.getGuiGraphics();
+        Font font = Minecraft.getInstance().font;
+        int x = 118;
+        int y = 6;
+        int textW = font.width(statusText);
+        int boxW = Math.min(textW + 10, Math.max(40, event.getScreen().width - x - 6));
+        guiGraphics.fill(x, y, x + boxW, y + 20, 0xA0101018);
+        guiGraphics.enableScissor(x + 2, y, x + boxW - 2, y + 20);
+        guiGraphics.drawString(font, statusText, x + 5, y + 6, textColor, true);
+        guiGraphics.disableScissor();
+    }
+
+    private static void onTitleUpdateButtonClick() {
+        ModAutoUpdater.StatusSnapshot snapshot = ModAutoUpdater.getStatus();
+        switch (snapshot.state()) {
+            case INSTALLED_RESTART_REQUIRED -> Minecraft.getInstance().stop();
+            case UPDATE_AVAILABLE -> {
+                if (snapshot.canAutoInstall()) {
+                    ModAutoUpdater.startInstallCurrentUpdateAsync();
+                } else {
+                    Util.getPlatform().openUri(snapshot.releaseUrl());
+                }
+            }
+            case CHECKING, DOWNLOADING -> {}
+            default -> ModAutoUpdater.startCheckAsync(ModConfig.autoInstallUpdates);
+        }
+    }
+
+    private static void syncTitleUpdateButton(Button btn, ModAutoUpdater.StatusSnapshot snapshot) {
+        switch (snapshot.state()) {
+            case CHECKING -> {
+                btn.setMessage(Component.translatable("gui.deathdimension.updater.btn_checking"));
+                btn.active = false;
+            }
+            case DOWNLOADING -> {
+                btn.setMessage(Component.translatable("gui.deathdimension.updater.btn_downloading", snapshot.progressPercent()));
+                btn.active = false;
+            }
+            case UPDATE_AVAILABLE -> {
+                String target = snapshot.targetVersion() != null ? snapshot.targetVersion() : "";
+                btn.setMessage(Component.translatable(
+                        snapshot.canAutoInstall() ? "gui.deathdimension.updater.btn_install" : "gui.deathdimension.updater.btn_download",
+                        target
+                ));
+                btn.active = true;
+            }
+            case INSTALLED_RESTART_REQUIRED -> {
+                btn.setMessage(Component.translatable("gui.deathdimension.updater.btn_restart"));
+                btn.active = true;
+            }
+            case FAILED -> {
+                btn.setMessage(Component.translatable("gui.deathdimension.updater.btn_retry"));
+                btn.active = true;
+            }
+            default -> {
+                btn.setMessage(Component.translatable("gui.deathdimension.updater.btn_check"));
+                btn.active = true;
+            }
+        }
+    }
+
+    private static Component formatUpdaterStatus(ModAutoUpdater.StatusSnapshot snapshot) {
+        String target = snapshot.targetVersion() != null ? snapshot.targetVersion() : "";
+        return switch (snapshot.state()) {
+            case CHECKING -> Component.translatable("gui.deathdimension.updater.status_checking");
+            case UP_TO_DATE -> Component.translatable("gui.deathdimension.updater.status_up_to_date", snapshot.currentVersion());
+            case UPDATE_AVAILABLE -> Component.translatable("gui.deathdimension.updater.status_available", target);
+            case DOWNLOADING -> Component.translatable("gui.deathdimension.updater.status_downloading", target, snapshot.progressPercent());
+            case INSTALLED_RESTART_REQUIRED -> Component.translatable("gui.deathdimension.updater.status_installed", target);
+            case FAILED -> Component.translatable("gui.deathdimension.updater.status_failed");
+            case IDLE -> Component.empty();
+        };
     }
 
     @SubscribeEvent

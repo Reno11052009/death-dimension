@@ -10,7 +10,9 @@ import com.reno.deathdimension.player.PlayerDeathData;
 import com.reno.deathdimension.player.PlayerTeleportHandler;
 import com.reno.deathdimension.registry.ModRegistries;
 import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -20,6 +22,8 @@ import net.minecraft.world.level.portal.DimensionTransition;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
+import net.neoforged.fml.VersionChecker;
 import net.neoforged.neoforge.event.entity.EntityTravelToDimensionEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
@@ -175,6 +179,7 @@ public final class DeathDimensionEvents {
         }
 
         PacketDistributor.sendToPlayer(player, new ConfigSyncPayload(ModConfig.captureSnapshot(), false));
+        notifyUpdateIfAvailable(player);
 
         PlayerDeathData data = player.getData(ModRegistries.PLAYER_DEATH_DATA.get());
         boolean inDeathDim = PlayerTeleportHandler.isInDeathDimension(player);
@@ -415,6 +420,37 @@ public final class DeathDimensionEvents {
                 );
             }
         }
+    }
+
+    private static void notifyUpdateIfAvailable(ServerPlayer player) {
+        if (!ModConfig.checkUpdates || !player.hasPermissions(2)) {
+            return;
+        }
+        ModList.get().getModContainerById(DeathDimension.MODID).ifPresent(container -> {
+            VersionChecker.CheckResult result = VersionChecker.getResult(container.getModInfo());
+            VersionChecker.Status status = result.status();
+            if ((status != VersionChecker.Status.OUTDATED && status != VersionChecker.Status.BETA_OUTDATED)
+                    || result.target() == null) {
+                return;
+            }
+            String downloadUrl = (result.url() != null && !result.url().isBlank())
+                    ? result.url()
+                    : "https://github.com/Reno11052009/death-dimension/releases";
+            Component link = Component.translatable("message.deathdimension.update_download")
+                    .withStyle(style -> style
+                            .withColor(ChatFormatting.AQUA)
+                            .withUnderlined(true)
+                            .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, downloadUrl))
+                            .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(downloadUrl))));
+            player.sendSystemMessage(
+                    Component.translatable(
+                            "message.deathdimension.update_available",
+                            result.target().toString(),
+                            container.getModInfo().getVersion().toString(),
+                            link
+                    ).withStyle(ChatFormatting.GOLD)
+            );
+        });
     }
 
     private static void rescueFromDeepVoid(ServerPlayer player) {

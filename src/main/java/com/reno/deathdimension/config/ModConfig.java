@@ -20,6 +20,8 @@ public final class ModConfig {
     private static final ModConfigSpec.BooleanValue ENABLE_DEATH_TELEPORT;
     private static final ModConfigSpec.BooleanValue ENABLE_FREE_MOVEMENT;
     private static final ModConfigSpec.BooleanValue PREVENT_VOID_DAMAGE;
+    private static final ModConfigSpec.BooleanValue CHECK_UPDATES;
+    private static final ModConfigSpec.BooleanValue AUTO_INSTALL_UPDATES;
 
     // [dimension]
     private static final ModConfigSpec.DoubleValue SPAWN_X;
@@ -69,6 +71,10 @@ public final class ModConfig {
                 .define("enableFreeMovement", true);
         PREVENT_VOID_DAMAGE = BUILDER.comment("Prevent void damage inside DeathDimension.")
                 .define("preventVoidDamage", true);
+        CHECK_UPDATES = BUILDER.comment("Check GitHub for newer DeathDimension releases on the Main Menu and notify operators in chat.")
+                .define("checkUpdates", true);
+        AUTO_INSTALL_UPDATES = BUILDER.comment("Automatically download and install DeathDimension updates from GitHub when detected on the Main Menu.")
+                .define("autoInstallUpdates", true);
         BUILDER.pop();
 
         BUILDER.comment("DeathDimension spawn and boundary settings").push("dimension");
@@ -146,6 +152,8 @@ public final class ModConfig {
     public static volatile boolean enableDeathTeleport = true;
     public static volatile boolean enableFreeMovement = true;
     public static volatile boolean preventVoidDamage = true;
+    public static volatile boolean checkUpdates = true;
+    public static volatile boolean autoInstallUpdates = true;
 
     public static volatile double spawnX = 0.0;
     public static volatile double spawnY = 100.0;
@@ -235,7 +243,7 @@ public final class ModConfig {
 
     public static ConfigSnapshot captureSnapshot() {
         return new ConfigSnapshot(
-                enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage,
+                enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage, checkUpdates, autoInstallUpdates,
                 spawnX, spawnY, spawnZ, useSharedSpawn, preventDimensionEscape,
                 preserveInventory, preserveExperience, restorePlayerAbilities, returnToDeathLocation,
                 enableCooldown, cooldownDuration, showCooldownMessage, showCooldownActionbar, allowAdminBypass,
@@ -252,6 +260,8 @@ public final class ModConfig {
         enableDeathTeleport = s.enableDeathTeleport();
         enableFreeMovement = s.enableFreeMovement();
         preventVoidDamage = s.preventVoidDamage();
+        checkUpdates = s.checkUpdates();
+        autoInstallUpdates = s.autoInstallUpdates();
 
         spawnX = s.spawnX();
         spawnY = s.spawnY();
@@ -289,6 +299,8 @@ public final class ModConfig {
             ENABLE_DEATH_TELEPORT.set(s.enableDeathTeleport());
             ENABLE_FREE_MOVEMENT.set(s.enableFreeMovement());
             PREVENT_VOID_DAMAGE.set(s.preventVoidDamage());
+            CHECK_UPDATES.set(s.checkUpdates());
+            AUTO_INSTALL_UPDATES.set(s.autoInstallUpdates());
 
             SPAWN_X.set(s.spawnX());
             SPAWN_Y.set(s.spawnY());
@@ -330,6 +342,8 @@ public final class ModConfig {
         enableDeathTeleport = ENABLE_DEATH_TELEPORT.get();
         enableFreeMovement = ENABLE_FREE_MOVEMENT.get();
         preventVoidDamage = PREVENT_VOID_DAMAGE.get();
+        checkUpdates = CHECK_UPDATES.get();
+        autoInstallUpdates = AUTO_INSTALL_UPDATES.get();
 
         spawnX = SPAWN_X.get();
         spawnY = SPAWN_Y.get();
@@ -375,6 +389,8 @@ public final class ModConfig {
             boolean enableDeathTeleport,
             boolean enableFreeMovement,
             boolean preventVoidDamage,
+            boolean checkUpdates,
+            boolean autoInstallUpdates,
             double spawnX,
             double spawnY,
             double spawnZ,
@@ -404,7 +420,7 @@ public final class ModConfig {
     ) {
         public ConfigSnapshot sanitized() {
             return new ConfigSnapshot(
-                    enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage,
+                    enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage, checkUpdates, autoInstallUpdates,
                     clampFinite(spawnX, MIN_COORD, MAX_COORD, 0.0),
                     clampFinite(spawnY, MIN_Y, MAX_Y, 100.0),
                     clampFinite(spawnZ, MIN_COORD, MAX_COORD, 0.0),
@@ -425,6 +441,8 @@ public final class ModConfig {
             buf.writeBoolean(enableDeathTeleport);
             buf.writeBoolean(enableFreeMovement);
             buf.writeBoolean(preventVoidDamage);
+            buf.writeBoolean(checkUpdates);
+            buf.writeBoolean(autoInstallUpdates);
             buf.writeDouble(spawnX);
             buf.writeDouble(spawnY);
             buf.writeDouble(spawnZ);
@@ -455,6 +473,8 @@ public final class ModConfig {
 
         public static ConfigSnapshot read(FriendlyByteBuf buf) {
             return new ConfigSnapshot(
+                    buf.readBoolean(),
+                    buf.readBoolean(),
                     buf.readBoolean(),
                     buf.readBoolean(),
                     buf.readBoolean(),

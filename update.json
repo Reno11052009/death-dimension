@@ -1,0 +1,16 @@
+{
+  "homepage": "https://github.com/Reno11052009/death-dimension/releases",
+  "1.21.1": {
+    "1.0.0": "Initial release of DeathDimension for Minecraft 1.21.1 (NeoForge): custom Void dimension, auto-respawn skipping Death Screen, center titles, eye-opening transition, selectable revive animations, OP-only Config GUI, AUTO/MANUAL return modes, and logout/rejoin safety.",
+    "1.0.1": "Added NeoForge update checker (update.json), Main Menu update status & automatic mod installer, and optional in-game update notifications for operators."
+  },
+  "downloads": {
+    "1.21.1": {
+      "1.0.1": "https://github.com/Reno11052009/death-dimension/releases/download/v1.0.1/deathdimension-1.0.1.jar"
+    }
+  },
+  "promos": {
+    "1.21.1-latest": "1.0.1",
+    "1.21.1-recommended": "1.0.1"
+  }
+}

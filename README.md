@@ -13,6 +13,7 @@ A Minecraft mod that introduces a mysterious dimension where players go after de
 - **Respawn Cooldown & Auto/Manual Return** - Supports configurable cooldowns with Action Bar timer, persistent wall-clock tracking across logout/restarts, and switchable `MANUAL` (`/deathdimension return`) or `AUTO` return modes.
 - **Logout/Rejoin Safety** - Safely preserves DeathDimension position, flight state, inventory/XP snapshots, and cooldown status when disconnecting inside DeathDimension.
 - **OP-Only In-Game Config GUI** - Tabbed configuration menu accessible via `/deathdimension config` or the Mods screen (OP level 2+ verified authoritatively on the server).
+- **Main Menu Auto-Updater** - Automatically checks `update.json` on the Main Menu, downloads & verifies newer `.jar` releases from GitHub into `mods/`, and notifies operators in-game.
 
 ## Requirements
 
@@ -33,6 +34,8 @@ enableMod = true
 enableDeathTeleport = true
 enableFreeMovement = true
 preventVoidDamage = true
+checkUpdates = true
+autoInstallUpdates = true
 
 [dimension]
 spawnX = 0.0
@@ -97,7 +100,9 @@ reviveAnimationStyle = "AWAKENING" # AWAKENING, SPIRAL_ASCENT, SHOCKWAVE, GENTLE
 ./gradlew build
 ```
 
-Compiled `.jar` output: `build/libs/deathdimension-1.0.0.jar`.
+Compiled `.jar` output: `build/libs/deathdimension-1.0.1.jar`.
+
+Repository & Releases: https://github.com/Reno11052009/death-dimension
 
 ### Run Client / Dedicated Server
 

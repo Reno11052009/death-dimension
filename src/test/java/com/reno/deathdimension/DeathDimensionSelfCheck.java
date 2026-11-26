@@ -1,6 +1,7 @@
 package com.reno.deathdimension;
 
 import com.reno.deathdimension.client.DeathDimensionClientEvents;
+import com.reno.deathdimension.client.ModAutoUpdater;
 import com.reno.deathdimension.client.TransitionOverlayLayer;
 import com.reno.deathdimension.config.ModConfig;
 import com.reno.deathdimension.config.ReturnMode;
@@ -12,7 +13,12 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.level.Level;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public final class DeathDimensionSelfCheck {
     public static void main(String[] args) {
@@ -22,6 +28,7 @@ public final class DeathDimensionSelfCheck {
         checkTransitionCurves();
         checkConfigSnapshotCodecAndSanitization();
         checkLogoutStatePersistence();
+        checkAutoUpdaterManifestAndJarValidation();
         System.out.println("DeathDimensionSelfCheck: ALL CHECKS PASSED");
     }
 
@@ -52,7 +59,7 @@ public final class DeathDimensionSelfCheck {
 
     private static void checkConfigSnapshotCodecAndSanitization() {
         ModConfig.ConfigSnapshot dirty = new ModConfig.ConfigSnapshot(
-                true, true, true, true,
+                true, true, true, true, true, true,
                 Double.NaN, 9999.0, -99_000_000.0, true, false,
                 true, true, true, true,
                 true, -50L, true, true, true,
@@ -173,6 +180,58 @@ public final class DeathDimensionSelfCheck {
         } finally {
             ModConfig.allowAdminBypass = true;
             CooldownManager.setClockForTesting(null);
+        }
+    }
+
+    private static void checkAutoUpdaterManifestAndJarValidation() {
+        assertTrue(ModAutoUpdater.compareVersions("1.0.2", "1.0.1") > 0, "1.0.2 > 1.0.1");
+        assertTrue(ModAutoUpdater.compareVersions("1.0.10", "1.0.2") > 0, "1.0.10 > 1.0.2");
+        assertTrue(ModAutoUpdater.compareVersions("1.0.1", "1.0.1-beta") > 0, "release > prerelease");
+        assertEq(0, ModAutoUpdater.compareVersions("1.0.1", "1.0.1"), "equal versions");
+
+        String manifest = """
+                {
+                  "homepage": "https://github.com/Reno11052009/death-dimension/releases",
+                  "downloads": {
+                    "1.21.1": {
+                      "1.0.2": "https://github.com/Reno11052009/death-dimension/releases/download/v1.0.2/deathdimension-1.0.2.jar"
+                    }
+                  },
+                  "promos": {
+                    "1.21.1-recommended": "1.0.1",
+                    "1.21.1-latest": "1.0.2"
+                  }
+                }
+                """;
+        ModAutoUpdater.UpdateInfo parsed = ModAutoUpdater.parseUpdateManifest(manifest, "1.21.1");
+        assertTrue(parsed != null, "manifest parsed");
+        assertEq("1.0.2", parsed.targetVersion(), "higher promo selected");
+        assertEq("https://github.com/Reno11052009/death-dimension/releases/download/v1.0.2/deathdimension-1.0.2.jar",
+                parsed.downloadUrl(), "explicit github download url resolved");
+
+        assertTrue(ModAutoUpdater.isAllowedDownloadUrl("https://github.com/Reno11052009/death-dimension/releases/download/v1.0.2/deathdimension-1.0.2.jar"),
+                "github https allowed");
+        assertTrue(!ModAutoUpdater.isAllowedDownloadUrl("http://github.com/Reno11052009/death-dimension/releases/download/v1.0.2/deathdimension-1.0.2.jar"),
+                "http rejected");
+        assertTrue(!ModAutoUpdater.isAllowedDownloadUrl("https://evil.example.com/deathdimension.jar"),
+                "non-github host rejected");
+
+        try {
+            Path validJar = Files.createTempFile("dd-valid-", ".jar");
+            try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(validJar))) {
+                zos.putNextEntry(new ZipEntry("META-INF/neoforge.mods.toml"));
+                zos.write("modId = \"deathdimension\"\n".getBytes(StandardCharsets.UTF_8));
+                zos.closeEntry();
+            }
+            assertTrue(ModAutoUpdater.isValidModJar(validJar), "valid mod jar accepted");
+            Files.deleteIfExists(validJar);
+
+            Path invalidJar = Files.createTempFile("dd-invalid-", ".jar");
+            Files.writeString(invalidJar, "<html>404 Not Found</html>");
+            assertTrue(!ModAutoUpdater.isValidModJar(invalidJar), "html file rejected as mod jar");
+            Files.deleteIfExists(invalidJar);
+        } catch (Exception e) {
+            throw new AssertionError("JAR validation self-check failed", e);
         }
     }
 

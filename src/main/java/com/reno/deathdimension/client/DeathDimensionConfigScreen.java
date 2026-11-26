@@ -41,6 +41,8 @@ public final class DeathDimensionConfigScreen extends Screen {
     private boolean enableDeathTeleport;
     private boolean enableFreeMovement;
     private boolean preventVoidDamage;
+    private boolean checkUpdates;
+    private boolean autoInstallUpdates;
     private double spawnX;
     private double spawnY;
     private double spawnZ;
@@ -99,6 +101,8 @@ public final class DeathDimensionConfigScreen extends Screen {
         this.enableDeathTeleport = s.enableDeathTeleport();
         this.enableFreeMovement = s.enableFreeMovement();
         this.preventVoidDamage = s.preventVoidDamage();
+        this.checkUpdates = s.checkUpdates();
+        this.autoInstallUpdates = s.autoInstallUpdates();
         this.spawnX = s.spawnX();
         this.spawnY = s.spawnY();
         this.spawnZ = s.spawnZ();
@@ -171,6 +175,8 @@ public final class DeathDimensionConfigScreen extends Screen {
                 addToggle(leftX, rowStartY + rowStep * 2, colW, "gui.deathdimension.opt.preserve_inventory", preserveInventory, v -> preserveInventory = v);
                 addToggle(rightX, rowStartY + rowStep * 2, colW, "gui.deathdimension.opt.preserve_experience", preserveExperience, v -> preserveExperience = v);
                 addToggle(leftX, rowStartY + rowStep * 3, colW, "gui.deathdimension.opt.restore_abilities", restorePlayerAbilities, v -> restorePlayerAbilities = v);
+                addToggle(rightX, rowStartY + rowStep * 3, colW, "gui.deathdimension.opt.check_updates", checkUpdates, v -> checkUpdates = v);
+                addToggle(leftX, rowStartY + rowStep * 4, colW, "gui.deathdimension.opt.auto_install_updates", autoInstallUpdates, v -> autoInstallUpdates = v);
             }
             case DIMENSION -> {
                 this.spawnXBox = addNumberBox(leftX, rowStartY + 12, colW, Double.toString(spawnX));
@@ -288,7 +294,7 @@ public final class DeathDimensionConfigScreen extends Screen {
             return;
         }
         ModConfig.ConfigSnapshot snapshot = new ModConfig.ConfigSnapshot(
-                enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage,
+                enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage, checkUpdates, autoInstallUpdates,
                 spawnX, spawnY, spawnZ, useSharedSpawn, preventDimensionEscape,
                 preserveInventory, preserveExperience, restorePlayerAbilities, returnToDeathLocation,
                 enableCooldown, cooldownDuration, showCooldownMessage, showCooldownActionbar, allowAdminBypass,
