@@ -7,25 +7,33 @@ import com.reno.deathdimension.config.ReviveAnimationStyle;
 import com.reno.deathdimension.network.DeathTransitionPayload;
 import com.reno.deathdimension.registry.ModRegistries;
 import net.minecraft.Util;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.DeathScreen;
+import net.minecraft.client.gui.screens.ReceivingLevelScreen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.Input;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.client.event.CalculateDetachedCameraDistanceEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.MovementInputUpdateEvent;
 import net.neoforged.neoforge.client.event.RenderPlayerEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -34,16 +42,40 @@ import java.util.Map;
 import java.util.Set;
 
 public final class DeathDimensionClientEvents {
+    private static final long DEATH_COLLAPSE_DURATION_NS = 1_100_000_000L;
+    private static final long DEATH_COLLAPSE_SAFETY_TIMEOUT_NS = 2_600_000_000L;
     private static final long AWAIT_EYE_OPEN_TIMEOUT_NS = 3_000_000_000L;
     private static final long EYE_OPEN_DURATION_NS = 2_800_000_000L;
     private static final long REVIVE_ANIM_DURATION_NS = 1_800_000_000L;
+    private static final long RESPAWN_ORBIT_DURATION_NS = 3_000_000_000L;
+    private static final long RESPAWN_ORBIT_PENDING_TIMEOUT_NS = 2_500_000_000L;
+    private static final double RESPAWN_ORBIT_DESIRED_HEIGHT = 3.0;
 
     private record ActiveRevive(long startNs, ReviveAnimationStyle style) {}
 
+    private static final class RespawnOrbitState {
+        boolean started;
+        long queuedAtNs;
+        long startNs;
+        double baseX;
+        double baseY;
+        double baseZ;
+        float baseYaw;
+        float basePitch;
+        double maxFloatHeight;
+        CameraType savedCameraType;
+        boolean savedFlying;
+        boolean landingBurstSpawned;
+    }
+
     private static volatile boolean serverHasMod = false;
+    private static volatile long deathCollapseStartNs = -1L;
+    private static volatile boolean deathRespawnPending = false;
+    private static volatile float deathFallRollDirection = 1.0f;
     private static volatile long awaitingEyeOpenStartNs = -1L;
     private static volatile long eyeOpenStartNs = -1L;
     private static volatile ActiveRevive localRevive = null;
+    private static volatile RespawnOrbitState respawnOrbit = null;
 
     private static final Map<Integer, ActiveRevive> revivingPlayers = new HashMap<>();
     private static final Set<Integer> pushedPlayersThisFrame = new HashSet<>();
@@ -64,6 +96,8 @@ public final class DeathDimensionClientEvents {
     public static void handleTransitionPayload(DeathTransitionPayload payload) {
         long now = System.nanoTime();
         if (payload.transitionKind() == DeathTransitionPayload.KIND_ENTER_DEATH) {
+            deathCollapseStartNs = -1L;
+            deathRespawnPending = false;
             awaitingEyeOpenStartNs = -1L;
             if (ModConfig.enableEyeOpenEffect) {
                 eyeOpenStartNs = now;
@@ -73,18 +107,127 @@ public final class DeathDimensionClientEvents {
 
         if (payload.transitionKind() == DeathTransitionPayload.KIND_RETURN_TO_LIFE && ModConfig.enableReviveAnimation) {
             ReviveAnimationStyle style = payload.style();
-            if (style == ReviveAnimationStyle.NONE) {
-                return;
+            Minecraft mc = Minecraft.getInstance();
+            LocalPlayer localPlayer = mc.player;
+            boolean isLocal = localPlayer != null && localPlayer.getId() == payload.entityId();
+
+            if (style != ReviveAnimationStyle.NONE) {
+                ActiveRevive active = new ActiveRevive(now, style);
+                revivingPlayers.put(payload.entityId(), active);
+                if (isLocal) {
+                    localRevive = active;
+                }
             }
-            ActiveRevive active = new ActiveRevive(now, style);
-            revivingPlayers.put(payload.entityId(), active);
-            LocalPlayer localPlayer = Minecraft.getInstance().player;
-            if (localPlayer != null && localPlayer.getId() == payload.entityId()) {
+
+            if (isLocal) {
+                deathCollapseStartNs = -1L;
+                deathRespawnPending = false;
                 awaitingEyeOpenStartNs = -1L;
                 eyeOpenStartNs = -1L;
-                localRevive = active;
+                if (ModConfig.enableRespawnOrbitAnimation) {
+                    beginOrQueueRespawnOrbit(mc, localPlayer, now);
+                }
             }
         }
+    }
+
+    private static void beginOrQueueRespawnOrbit(Minecraft mc, LocalPlayer player, long now) {
+        CameraType originalCamera = respawnOrbit != null && respawnOrbit.savedCameraType != null
+                ? respawnOrbit.savedCameraType
+                : mc.options.getCameraType();
+
+        RespawnOrbitState state = new RespawnOrbitState();
+        state.queuedAtNs = now;
+        state.savedCameraType = originalCamera;
+        state.savedFlying = player.isCreative() || player.isSpectator();
+        respawnOrbit = state;
+
+        if (mc.level != null && !(mc.screen instanceof ReceivingLevelScreen)
+                && mc.level.hasChunk(player.chunkPosition().x, player.chunkPosition().z)) {
+            activateRespawnOrbit(mc, mc.level, player, state, now);
+        }
+    }
+
+    private static void activateRespawnOrbit(Minecraft mc, ClientLevel level, LocalPlayer player,
+                                             RespawnOrbitState state, long now) {
+        state.started = true;
+        state.startNs = now;
+        state.baseX = player.getX();
+        state.baseY = player.getY();
+        state.baseZ = player.getZ();
+        state.baseYaw = player.getYRot();
+        state.basePitch = player.getXRot();
+        state.maxFloatHeight = player.isPassenger()
+                ? 0.0
+                : computeSafeFloatHeight(level, player, RESPAWN_ORBIT_DESIRED_HEIGHT);
+        mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
+    }
+
+    private static double computeSafeFloatHeight(ClientLevel level, LocalPlayer player, double desiredHeight) {
+        AABB baseBox = player.getBoundingBox();
+        double safeHeight = 0.0;
+        double step = 0.1;
+        double headroomMargin = 0.08;
+        for (double h = step; h <= desiredHeight + 1.0E-6; h += step) {
+            double testH = Math.min(h, desiredHeight);
+            AABB shifted = baseBox.move(0.0, testH + headroomMargin, 0.0);
+            if (!level.noCollision(player, shifted)) {
+                break;
+            }
+            safeHeight = testH;
+        }
+        return safeHeight;
+    }
+
+    private static void finishRespawnOrbit(Minecraft mc, LocalPlayer player) {
+        RespawnOrbitState state = respawnOrbit;
+        respawnOrbit = null;
+        if (state == null) {
+            return;
+        }
+        if (state.savedCameraType != null) {
+            mc.options.setCameraType(state.savedCameraType);
+        }
+        if (player != null) {
+            if (state.started && !player.isPassenger() && player.isAlive()) {
+                player.setPos(state.baseX, state.baseY, state.baseZ);
+                player.setDeltaMovement(Vec3.ZERO);
+                player.resetFallDistance();
+                player.setOnGround(true);
+            }
+            if (!player.isCreative() && !player.isSpectator() && !state.savedFlying) {
+                player.getAbilities().flying = false;
+            }
+        }
+    }
+
+    public static double getRespawnOrbitProgress() {
+        RespawnOrbitState state = respawnOrbit;
+        if (state == null || !state.started) {
+            return -1.0;
+        }
+        long elapsed = System.nanoTime() - state.startNs;
+        if (elapsed >= RESPAWN_ORBIT_DURATION_NS) {
+            return -1.0;
+        }
+        return (double) elapsed / (double) RESPAWN_ORBIT_DURATION_NS;
+    }
+
+    public static double getDeathCollapseProgress() {
+        long start = deathCollapseStartNs;
+        if (start < 0L) {
+            return -1.0;
+        }
+        long elapsed = System.nanoTime() - start;
+        if (elapsed >= DEATH_COLLAPSE_SAFETY_TIMEOUT_NS) {
+            deathCollapseStartNs = -1L;
+            deathRespawnPending = false;
+            return -1.0;
+        }
+        if (elapsed >= DEATH_COLLAPSE_DURATION_NS) {
+            return 1.0;
+        }
+        return (double) elapsed / (double) DEATH_COLLAPSE_DURATION_NS;
     }
 
     public static boolean isAwaitingEyeOpen() {
@@ -132,7 +275,10 @@ public final class DeathDimensionClientEvents {
 
     @SubscribeEvent
     public void onClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        finishRespawnOrbit(Minecraft.getInstance(), null);
         serverHasMod = false;
+        deathCollapseStartNs = -1L;
+        deathRespawnPending = false;
         awaitingEyeOpenStartNs = -1L;
         eyeOpenStartNs = -1L;
         localRevive = null;
@@ -259,6 +405,7 @@ public final class DeathDimensionClientEvents {
         if (!(event.getNewScreen() instanceof DeathScreen)) {
             return;
         }
+        finishRespawnOrbit(Minecraft.getInstance(), null);
         if (!serverHasMod || !ModConfig.enableMod || !ModConfig.enableDeathTeleport || !ModConfig.skipDeathScreen) {
             return;
         }
@@ -269,6 +416,19 @@ public final class DeathDimensionClientEvents {
         }
 
         event.setCanceled(true);
+
+        if (ModConfig.enableDeathCameraFall || ModConfig.enableDeathEyeClose) {
+            if (deathCollapseStartNs < 0L) {
+                deathCollapseStartNs = System.nanoTime();
+                deathRespawnPending = true;
+                deathFallRollDirection = mc.level.random.nextBoolean() ? 1.0f : -1.0f;
+                awaitingEyeOpenStartNs = -1L;
+                eyeOpenStartNs = -1L;
+                localRevive = null;
+            }
+            return;
+        }
+
         if (ModConfig.enableEyeOpenEffect) {
             awaitingEyeOpenStartNs = System.nanoTime();
         }
@@ -286,6 +446,22 @@ public final class DeathDimensionClientEvents {
         LocalPlayer player = mc.player;
         if (level == null || player == null || mc.isPaused()) {
             return;
+        }
+
+        long collapseStart = deathCollapseStartNs;
+        if (collapseStart >= 0L) {
+            long elapsed = System.nanoTime() - collapseStart;
+            if (player.isAlive() && !player.isDeadOrDying()) {
+                deathCollapseStartNs = -1L;
+                deathRespawnPending = false;
+            } else if (elapsed >= DEATH_COLLAPSE_DURATION_NS && deathRespawnPending) {
+                deathRespawnPending = false;
+                deathCollapseStartNs = -1L;
+                if (ModConfig.enableEyeOpenEffect || ModConfig.enableDeathEyeClose) {
+                    awaitingEyeOpenStartNs = System.nanoTime();
+                }
+                player.respawn();
+            }
         }
 
         if (ModConfig.enableMod && ModConfig.enableVoidParticles
@@ -315,11 +491,135 @@ public final class DeathDimensionClientEvents {
     }
 
     @SubscribeEvent
+    public void onMovementInputUpdate(MovementInputUpdateEvent event) {
+        RespawnOrbitState state = respawnOrbit;
+        if (state == null) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (event.getEntity() != mc.player) {
+            return;
+        }
+        if (state.started) {
+            double progress = getRespawnOrbitProgress();
+            if (progress < 0.0 || progress >= 2.82 / 3.0) {
+                return;
+            }
+        }
+        Input input = event.getInput();
+        input.forwardImpulse = 0.0f;
+        input.leftImpulse = 0.0f;
+        input.up = false;
+        input.down = false;
+        input.left = false;
+        input.right = false;
+        input.jumping = false;
+        input.shiftKeyDown = false;
+    }
+
+    @SubscribeEvent
+    public void onLocalPlayerTickPost(PlayerTickEvent.Post event) {
+        if (!(event.getEntity() instanceof LocalPlayer player) || !player.level().isClientSide()) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (player != mc.player || mc.isPaused()) {
+            return;
+        }
+        RespawnOrbitState state = respawnOrbit;
+        if (state == null) {
+            return;
+        }
+
+        ClientLevel level = mc.level;
+        if (level == null || !player.isAlive() || player.isDeadOrDying()
+                || level.dimension().equals(ModRegistries.DEATH_DIMENSION)) {
+            finishRespawnOrbit(mc, player);
+            return;
+        }
+
+        long now = System.nanoTime();
+        if (!state.started) {
+            if (now - state.queuedAtNs > RESPAWN_ORBIT_PENDING_TIMEOUT_NS) {
+                finishRespawnOrbit(mc, player);
+                return;
+            }
+            if (!(mc.screen instanceof ReceivingLevelScreen)
+                    && level.hasChunk(player.chunkPosition().x, player.chunkPosition().z)) {
+                activateRespawnOrbit(mc, level, player, state, now);
+            } else {
+                return;
+            }
+        }
+
+        long elapsed = now - state.startNs;
+        if (elapsed >= RESPAWN_ORBIT_DURATION_NS) {
+            finishRespawnOrbit(mc, player);
+            return;
+        }
+
+        if (mc.options.getCameraType() != CameraType.THIRD_PERSON_BACK) {
+            mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
+        }
+
+        double progress = (double) elapsed / (double) RESPAWN_ORBIT_DURATION_NS;
+        double heightFactor = TransitionOverlayLayer.respawnOrbitHeightFactor(progress);
+        double targetY = state.baseY + state.maxFloatHeight * heightFactor;
+
+        if (!player.isPassenger()) {
+            player.setPos(state.baseX, targetY, state.baseZ);
+            player.setDeltaMovement(Vec3.ZERO);
+            player.resetFallDistance();
+            player.setOnGround(heightFactor <= 0.001);
+        }
+
+        spawnRespawnOrbitParticles(level, player, state, progress);
+    }
+
+    @SubscribeEvent
+    public void onCalculateDetachedCameraDistance(CalculateDetachedCameraDistanceEvent event) {
+        RespawnOrbitState state = respawnOrbit;
+        if (state == null || !state.started) {
+            return;
+        }
+        double progress = getRespawnOrbitProgress();
+        if (progress < 0.0 || progress >= 1.0) {
+            return;
+        }
+        boolean returnToFirstPerson = state.savedCameraType == CameraType.FIRST_PERSON;
+        event.setDistance(TransitionOverlayLayer.respawnOrbitCameraDistance(progress, returnToFirstPerson));
+    }
+
+    @SubscribeEvent
     public void onComputeCameraAngles(ViewportEvent.ComputeCameraAngles event) {
+        double deathCollapseProgress = getDeathCollapseProgress();
+        if (deathCollapseProgress >= 0.0 && ModConfig.enableDeathCameraFall) {
+            double fall = TransitionOverlayLayer.deathCameraFallFactor(deathCollapseProgress);
+            event.setPitch(clampPitch(event.getPitch() + (float) (42.0 * fall)));
+            event.setRoll(event.getRoll() + (float) (deathFallRollDirection * 32.0 * fall));
+            event.setYaw(event.getYaw() + (float) (deathFallRollDirection * 12.0 * fall));
+        }
+
         double eyeProgress = getEyeOpenProgress();
         if (eyeProgress >= 0.0 && eyeProgress < 1.0) {
             double closed = 1.0 - TransitionOverlayLayer.eyeOpenFactor(eyeProgress);
             event.setPitch(clampPitch(event.getPitch() + (float) (14.0 * closed)));
+        }
+
+        RespawnOrbitState orbit = respawnOrbit;
+        if (orbit != null && orbit.started) {
+            double orbitProgress = getRespawnOrbitProgress();
+            if (orbitProgress >= 0.0 && orbitProgress < 1.0) {
+                double orbitAngle = TransitionOverlayLayer.respawnOrbitAngleDegrees(orbitProgress);
+                double pitchBlend = TransitionOverlayLayer.respawnOrbitPitchBlend(orbitProgress);
+                float cinematicPitch = 16.0f;
+                float targetPitch = (float) (orbit.basePitch + (cinematicPitch - orbit.basePitch) * pitchBlend);
+                float subtleRoll = (float) (2.5 * Math.sin(Math.PI * 2.0 * orbitProgress) * pitchBlend);
+                event.setYaw(orbit.baseYaw + (float) orbitAngle);
+                event.setPitch(clampPitch(targetPitch));
+                event.setRoll(event.getRoll() + subtleRoll);
+                return;
+            }
         }
 
         double reviveProgress = getLocalReviveProgress();
@@ -350,10 +650,22 @@ public final class DeathDimensionClientEvents {
 
     @SubscribeEvent
     public void onComputeFov(ViewportEvent.ComputeFov event) {
+        double deathCollapseProgress = getDeathCollapseProgress();
+        if (deathCollapseProgress >= 0.0 && ModConfig.enableDeathCameraFall) {
+            double fall = TransitionOverlayLayer.deathCameraFallFactor(deathCollapseProgress);
+            event.setFOV(Math.max(30.0, event.getFOV() - 12.0 * fall));
+        }
+
         double eyeProgress = getEyeOpenProgress();
         if (eyeProgress >= 0.0 && eyeProgress < 1.0) {
             double closed = 1.0 - TransitionOverlayLayer.eyeOpenFactor(eyeProgress);
             event.setFOV(event.getFOV() - 7.0 * closed);
+        }
+
+        double orbitProgress = getRespawnOrbitProgress();
+        if (orbitProgress >= 0.0 && orbitProgress < 1.0) {
+            event.setFOV(event.getFOV() + 6.5 * Math.sin(Math.PI * orbitProgress));
+            return;
         }
 
         double reviveProgress = getLocalReviveProgress();
@@ -384,6 +696,17 @@ public final class DeathDimensionClientEvents {
             return;
         }
         int id = event.getEntity().getId();
+        LocalPlayer localPlayer = Minecraft.getInstance().player;
+        if (localPlayer != null && localPlayer.getId() == id && getRespawnOrbitProgress() >= 0.0) {
+            double orbitProgress = getRespawnOrbitProgress();
+            PoseStack poseStack = event.getPoseStack();
+            poseStack.pushPose();
+            pushedPlayersThisFrame.add(id);
+            float auraScale = 1.0f + (float) (0.035 * Math.sin(Math.PI * orbitProgress));
+            poseStack.scale(auraScale, auraScale, auraScale);
+            return;
+        }
+
         ActiveRevive active = revivingPlayers.get(id);
         if (active == null || active.style() == ReviveAnimationStyle.NONE) {
             return;
@@ -438,6 +761,63 @@ public final class DeathDimensionClientEvents {
         int id = event.getEntity().getId();
         if (pushedPlayersThisFrame.remove(id)) {
             event.getPoseStack().popPose();
+        }
+    }
+
+    private static void spawnRespawnOrbitParticles(ClientLevel level, LocalPlayer player,
+                                                   RespawnOrbitState state, double progress) {
+        RandomSource random = level.random;
+        double descentEnd = 2.8 / 3.0;
+
+        if (progress < descentEnd) {
+            double angle = progress * Math.PI * 10.0;
+            double radius = 0.72 + 0.12 * Math.sin(progress * Math.PI * 4.0);
+            double feetY = player.getY() + 0.08;
+
+            for (int arm = 0; arm < 2; arm++) {
+                double a = angle + arm * Math.PI;
+                double px = player.getX() + Math.cos(a) * radius;
+                double pz = player.getZ() + Math.sin(a) * radius;
+                level.addParticle(ParticleTypes.END_ROD, px, feetY, pz, 0.0, -0.025, 0.0);
+            }
+
+            if (random.nextFloat() < 0.65f) {
+                double a = random.nextDouble() * Math.PI * 2.0;
+                double r = 0.35 + random.nextDouble() * 0.65;
+                double px = player.getX() + Math.cos(a) * r;
+                double pz = player.getZ() + Math.sin(a) * r;
+                level.addParticle(
+                        random.nextBoolean() ? ParticleTypes.SOUL_FIRE_FLAME : ParticleTypes.ENCHANT,
+                        px, feetY + random.nextDouble() * 0.4, pz,
+                        0.0, -0.03, 0.0
+                );
+            }
+
+            if (state.maxFloatHeight > 0.3 && random.nextFloat() < 0.55f) {
+                double a = random.nextDouble() * Math.PI * 2.0;
+                double r = 0.25 + random.nextDouble() * 0.45;
+                double py = state.baseY + random.nextDouble() * Math.max(0.2, player.getY() - state.baseY);
+                level.addParticle(
+                        ParticleTypes.END_ROD,
+                        state.baseX + Math.cos(a) * r,
+                        py,
+                        state.baseZ + Math.sin(a) * r,
+                        0.0, 0.05, 0.0
+                );
+            }
+        } else if (!state.landingBurstSpawned) {
+            state.landingBurstSpawned = true;
+            int count = 18;
+            for (int i = 0; i < count; i++) {
+                double a = (Math.PI * 2.0 * i) / count;
+                double speed = 0.11;
+                double vx = Math.cos(a) * speed;
+                double vz = Math.sin(a) * speed;
+                level.addParticle(ParticleTypes.END_ROD, state.baseX, state.baseY + 0.1, state.baseZ, vx, 0.03, vz);
+                if (i % 2 == 0) {
+                    level.addParticle(ParticleTypes.CLOUD, state.baseX, state.baseY + 0.08, state.baseZ, vx * 0.85, 0.015, vz * 0.85);
+                }
+            }
         }
     }
 

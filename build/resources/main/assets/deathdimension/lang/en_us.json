@@ -57,6 +57,7 @@
   "gui.deathdimension.opt.prevent_void_damage": "No Void Damage",
   "gui.deathdimension.opt.preserve_inventory": "Keep Inventory",
   "gui.deathdimension.opt.preserve_experience": "Keep Experience",
+  "gui.deathdimension.opt.stash_inventory": "Hide Items in DeathDim",
   "gui.deathdimension.opt.restore_abilities": "Restore Abilities",
   "gui.deathdimension.opt.check_updates": "Check Updates",
   "gui.deathdimension.opt.auto_install_updates": "Auto-Install Updates",
@@ -93,7 +94,10 @@
   "gui.deathdimension.opt.void_particles": "Void Particles",
   "gui.deathdimension.opt.death_title": "Death Title",
   "gui.deathdimension.opt.return_title": "Revive Title",
+  "gui.deathdimension.opt.death_camera_fall": "Death Camera Fall",
+  "gui.deathdimension.opt.death_eye_close": "Death Eye Close",
   "gui.deathdimension.opt.eye_open_effect": "Eye Open Effect",
   "gui.deathdimension.opt.revive_animation": "Revive Animation",
-  "gui.deathdimension.opt.revive_style": "Revive Animation Style"
+  "gui.deathdimension.opt.respawn_orbit_animation": "Respawn Orbit Lift",
+  "gui.deathdimension.opt.revive_style": "Revive Style"
 }

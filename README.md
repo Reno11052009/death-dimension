@@ -47,6 +47,7 @@ preventDimensionEscape = false
 [player]
 preserveInventory = true
 preserveExperience = true
+stashInventoryInDeathDimension = true
 restorePlayerAbilities = true
 returnToDeathLocation = true
 
@@ -69,8 +70,11 @@ skipDeathScreen = true
 enableVoidParticles = true
 enableDeathTitle = true
 enableReturnTitle = true
+enableDeathCameraFall = true
+enableDeathEyeClose = true
 enableEyeOpenEffect = true
 enableReviveAnimation = true
+enableRespawnOrbitAnimation = true
 reviveAnimationStyle = "AWAKENING" # AWAKENING, SPIRAL_ASCENT, SHOCKWAVE, GENTLE_DRIFT, NONE
 ```
 

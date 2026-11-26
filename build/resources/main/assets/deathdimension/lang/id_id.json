@@ -57,6 +57,7 @@
   "gui.deathdimension.opt.prevent_void_damage": "Anti Damage Void",
   "gui.deathdimension.opt.preserve_inventory": "Simpan Inventory",
   "gui.deathdimension.opt.preserve_experience": "Simpan XP",
+  "gui.deathdimension.opt.stash_inventory": "Tahan Item di DeathDim",
   "gui.deathdimension.opt.restore_abilities": "Pulihkan Ability",
   "gui.deathdimension.opt.check_updates": "Cek Pembaruan",
   "gui.deathdimension.opt.auto_install_updates": "Auto-Install Update",
@@ -93,7 +94,10 @@
   "gui.deathdimension.opt.void_particles": "Partikel Void",
   "gui.deathdimension.opt.death_title": "Title Saat Mati",
   "gui.deathdimension.opt.return_title": "Title Saat Hidup",
+  "gui.deathdimension.opt.death_camera_fall": "Kamera Jatuh Mati",
+  "gui.deathdimension.opt.death_eye_close": "Tutup Mata Mati",
   "gui.deathdimension.opt.eye_open_effect": "Efek Buka Mata",
   "gui.deathdimension.opt.revive_animation": "Animasi Hidup",
-  "gui.deathdimension.opt.revive_style": "Gaya Animasi Hidup"
+  "gui.deathdimension.opt.respawn_orbit_animation": "Animasi Terbang Orbit",
+  "gui.deathdimension.opt.revive_style": "Gaya Animasi"
 }

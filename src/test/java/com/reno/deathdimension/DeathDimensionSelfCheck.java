@@ -10,6 +10,7 @@ import com.reno.deathdimension.cooldown.CooldownManager;
 import com.reno.deathdimension.player.PlayerDeathData;
 import io.netty.buffer.Unpooled;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.level.Level;
 
@@ -55,17 +56,51 @@ public final class DeathDimensionSelfCheck {
         assertTrue(!loaded.hasDeathDimPosition(), "clearDeathState resets deathDim position");
         assertTrue(!loaded.isAutoReturnEligible(), "clearDeathState resets autoReturnEligible");
         assertEq(0L, loaded.getLastLogoutEpoch(), "clearDeathState resets lastLogoutEpoch");
+
+        // Verify stashed inventory and experience survive NBT round-trips and clearDeathState()
+        CompoundTag stashedTag = new CompoundTag();
+        stashedTag.putBoolean("InDeathDimension", true);
+        stashedTag.putBoolean("HasSavedInventory", true);
+        ListTag fakeItems = new ListTag();
+        CompoundTag itemTag = new CompoundTag();
+        itemTag.putByte("Slot", (byte) 0);
+        itemTag.putString("id", "minecraft:diamond_sword");
+        itemTag.putInt("count", 1);
+        fakeItems.add(itemTag);
+        stashedTag.put("SavedInventory", fakeItems);
+        stashedTag.putBoolean("HasSavedExperience", true);
+        stashedTag.putInt("SavedExpLevel", 27);
+        stashedTag.putInt("SavedTotalExp", 1100);
+        stashedTag.putFloat("SavedExpProgress", 0.45f);
+
+        PlayerDeathData stashed = new PlayerDeathData();
+        stashed.deserializeNBT(null, stashedTag);
+        CompoundTag reserialized = stashed.serializeNBT(null);
+        PlayerDeathData reloadedStash = new PlayerDeathData();
+        reloadedStash.deserializeNBT(null, reserialized);
+
+        assertTrue(reloadedStash.hasSavedInventory(), "stashed inventory flag persisted");
+        assertEq(1, reloadedStash.getSavedInventoryCount(), "stashed inventory item count persisted");
+        assertTrue(reloadedStash.hasSavedExperience(), "stashed experience flag persisted");
+        assertEq(27, reloadedStash.getSavedExpLevel(), "stashed exp level persisted");
+        assertEq(1100, reloadedStash.getSavedTotalExp(), "stashed total exp persisted");
+        assertEq(0.45f, reloadedStash.getSavedExpProgress(), "stashed exp progress persisted");
+
+        reloadedStash.clearDeathState();
+        assertTrue(reloadedStash.hasSavedInventory(), "clearDeathState preserves unrestored inventory");
+        assertTrue(reloadedStash.hasSavedExperience(), "clearDeathState preserves unrestored experience");
     }
 
     private static void checkConfigSnapshotCodecAndSanitization() {
         ModConfig.ConfigSnapshot dirty = new ModConfig.ConfigSnapshot(
                 true, true, true, true, true, true,
                 Double.NaN, 9999.0, -99_000_000.0, true, false,
-                true, true, true, true,
+                true, true, true, true, true,
                 true, -50L, true, true, true,
                 true, ReturnMode.AUTO, true, true, true,
                 true, true, true, true,
-                true, true, ReviveAnimationStyle.SPIRAL_ASCENT
+                true, true,
+                true, true, true, ReviveAnimationStyle.SPIRAL_ASCENT
         );
         ModConfig.ConfigSnapshot clean = dirty.sanitized();
         assertEq(0.0, clean.spawnX(), "NaN spawnX clamped to fallback");
@@ -102,8 +137,48 @@ public final class DeathDimensionSelfCheck {
         assertTrue(blink < peek && blink > 0.0, "drowsy blink closes slightly");
         assertTrue(Math.abs(open - 1.0) < 1e-6, "eyes fully open at t=1");
 
+        assertEq(1.0, TransitionOverlayLayer.eyeCloseFactor(0.0), "death eyes start fully open");
+        double midDroop = TransitionOverlayLayer.eyeCloseFactor(0.50);
+        double flutter = TransitionOverlayLayer.eyeCloseFactor(0.62);
+        assertTrue(midDroop > 0.2 && midDroop < 0.4, "death eyes droop partway");
+        assertTrue(flutter > midDroop && flutter < 0.5, "death eyes show faint fading flutter");
+        assertEq(0.0, TransitionOverlayLayer.eyeCloseFactor(0.95), "death eyes shut before respawn");
+        assertEq(0.0, TransitionOverlayLayer.eyeCloseFactor(1.0), "death eyes fully closed at t=1");
+
+        assertEq(0.0, TransitionOverlayLayer.deathCameraFallFactor(0.0), "death camera fall starts at 0");
+        assertTrue(TransitionOverlayLayer.deathCameraFallFactor(0.31) > 0.2
+                && TransitionOverlayLayer.deathCameraFallFactor(0.31) < 0.3, "death camera fall accelerates quadratically");
+        assertEq(1.0, TransitionOverlayLayer.deathCameraFallFactor(0.62), "death camera fall reaches ground at 0.62");
+        assertEq(1.0, TransitionOverlayLayer.deathCameraFallFactor(1.0), "death camera fall rests at 1.0");
+
         assertTrue(TransitionOverlayLayer.reviveFlashAlpha(0.0) > 0.7, "revive flash starts bright");
         assertTrue(TransitionOverlayLayer.reviveFlashAlpha(0.6) == 0.0, "revive flash clears cleanly");
+
+        // Respawn 3-block float & 360-degree camera orbit curves
+        assertEq(0.0, TransitionOverlayLayer.respawnOrbitHeightFactor(0.0), "orbit lift starts on ground");
+        double ascentPeak = TransitionOverlayLayer.respawnOrbitHeightFactor(0.8 / 3.0);
+        assertTrue(Math.abs(ascentPeak - 1.0) < 1e-6, "orbit lift reaches full height at 0.8s");
+        double hoverMid = TransitionOverlayLayer.respawnOrbitHeightFactor(1.5 / 3.0);
+        assertTrue(hoverMid >= 0.95 && hoverMid <= 1.0, "orbit hover stays within safe headroom");
+        assertEq(0.0, TransitionOverlayLayer.respawnOrbitHeightFactor(2.8 / 3.0), "orbit lands cleanly at 2.8s");
+        assertEq(0.0, TransitionOverlayLayer.respawnOrbitHeightFactor(1.0), "orbit stays grounded during settle");
+
+        assertEq(0.0, TransitionOverlayLayer.respawnOrbitAngleDegrees(0.0), "orbit yaw starts at 0 deg");
+        double midOrbitAngle = TransitionOverlayLayer.respawnOrbitAngleDegrees(1.4 / 3.0);
+        assertTrue(Math.abs(midOrbitAngle - 180.0) < 1e-6, "orbit yaw reaches 180 deg at midpoint");
+        assertEq(360.0, TransitionOverlayLayer.respawnOrbitAngleDegrees(2.8 / 3.0), "orbit completes 360 deg at 2.8s");
+        assertEq(360.0, TransitionOverlayLayer.respawnOrbitAngleDegrees(1.0), "orbit holds 360 deg through settle");
+
+        assertEq(0.0, TransitionOverlayLayer.respawnOrbitPitchBlend(0.0), "orbit pitch blend starts at 0");
+        assertEq(1.0, TransitionOverlayLayer.respawnOrbitPitchBlend(0.5), "orbit pitch blend full during hover");
+        assertEq(0.0, TransitionOverlayLayer.respawnOrbitPitchBlend(1.0), "orbit pitch blend returns to 0");
+
+        float midDist = TransitionOverlayLayer.respawnOrbitCameraDistance(0.5, true);
+        float endDistFp = TransitionOverlayLayer.respawnOrbitCameraDistance(1.0, true);
+        float endDistTp = TransitionOverlayLayer.respawnOrbitCameraDistance(1.0, false);
+        assertTrue(midDist >= 4.5f && midDist <= 5.0f, "orbit camera distance frames floating player");
+        assertTrue(endDistFp < 1.0f, "orbit zooms smoothly in when returning to first-person");
+        assertTrue(Math.abs(endDistTp - 4.0f) < 1e-5f, "orbit returns to vanilla 4.0 distance for third-person");
 
         assertEq(89.0f, DeathDimensionClientEvents.clampPitch(120.0f), "camera pitch clamped to +89");
         assertEq(-89.0f, DeathDimensionClientEvents.clampPitch(-110.0f), "camera pitch clamped to -89");

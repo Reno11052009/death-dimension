@@ -33,6 +33,7 @@ public final class ModConfig {
     // [player]
     private static final ModConfigSpec.BooleanValue PRESERVE_INVENTORY;
     private static final ModConfigSpec.BooleanValue PRESERVE_EXPERIENCE;
+    private static final ModConfigSpec.BooleanValue STASH_INVENTORY_IN_DEATH_DIMENSION;
     private static final ModConfigSpec.BooleanValue RESTORE_PLAYER_ABILITIES;
     private static final ModConfigSpec.BooleanValue RETURN_TO_DEATH_LOCATION;
 
@@ -55,8 +56,11 @@ public final class ModConfig {
     private static final ModConfigSpec.BooleanValue ENABLE_VOID_PARTICLES;
     private static final ModConfigSpec.BooleanValue ENABLE_DEATH_TITLE;
     private static final ModConfigSpec.BooleanValue ENABLE_RETURN_TITLE;
+    private static final ModConfigSpec.BooleanValue ENABLE_DEATH_CAMERA_FALL;
+    private static final ModConfigSpec.BooleanValue ENABLE_DEATH_EYE_CLOSE;
     private static final ModConfigSpec.BooleanValue ENABLE_EYE_OPEN_EFFECT;
     private static final ModConfigSpec.BooleanValue ENABLE_REVIVE_ANIMATION;
+    private static final ModConfigSpec.BooleanValue ENABLE_RESPAWN_ORBIT_ANIMATION;
     private static final ModConfigSpec.EnumValue<ReviveAnimationStyle> REVIVE_ANIMATION_STYLE;
 
     public static final ModConfigSpec SPEC;
@@ -95,6 +99,8 @@ public final class ModConfig {
                 .define("preserveInventory", true);
         PRESERVE_EXPERIENCE = BUILDER.comment("Preserve player experience across death when keepInventory is disabled.")
                 .define("preserveExperience", true);
+        STASH_INVENTORY_IN_DEATH_DIMENSION = BUILDER.comment("Keep preserved inventory and experience safely stored while in DeathDimension and restore them upon returning to life.")
+                .define("stashInventoryInDeathDimension", true);
         RESTORE_PLAYER_ABILITIES = BUILDER.comment("Restore the player's pre-death movement abilities when leaving DeathDimension.")
                 .define("restorePlayerAbilities", true);
         RETURN_TO_DEATH_LOCATION = BUILDER.comment("Return players to their death coordinates if returnToOriginalPosition is enabled.")
@@ -136,10 +142,16 @@ public final class ModConfig {
                 .define("enableDeathTitle", true);
         ENABLE_RETURN_TITLE = BUILDER.comment("Display a center-screen title when returning to the living world.")
                 .define("enableReturnTitle", true);
+        ENABLE_DEATH_CAMERA_FALL = BUILDER.comment("Play a collapsing camera fall animation when the player dies.")
+                .define("enableDeathCameraFall", true);
+        ENABLE_DEATH_EYE_CLOSE = BUILDER.comment("Play an eye-closing eyelid transition when the player dies.")
+                .define("enableDeathEyeClose", true);
         ENABLE_EYE_OPEN_EFFECT = BUILDER.comment("Play an eye-opening transition when awakening in DeathDimension.")
                 .define("enableEyeOpenEffect", true);
         ENABLE_REVIVE_ANIMATION = BUILDER.comment("Play camera and player animations when returning to life.")
                 .define("enableReviveAnimation", true);
+        ENABLE_RESPAWN_ORBIT_ANIMATION = BUILDER.comment("Lift the player 3 blocks into the air with a 360-degree orbiting camera animation when returning to life.")
+                .define("enableRespawnOrbitAnimation", true);
         REVIVE_ANIMATION_STYLE = BUILDER.comment("Animation style when returning to life: AWAKENING, SPIRAL_ASCENT, SHOCKWAVE, GENTLE_DRIFT, or NONE.")
                 .defineEnum("reviveAnimationStyle", ReviveAnimationStyle.AWAKENING);
         BUILDER.pop();
@@ -163,6 +175,7 @@ public final class ModConfig {
 
     public static volatile boolean preserveInventory = true;
     public static volatile boolean preserveExperience = true;
+    public static volatile boolean stashInventoryInDeathDimension = true;
     public static volatile boolean restorePlayerAbilities = true;
     public static volatile boolean returnToDeathLocation = true;
 
@@ -182,8 +195,11 @@ public final class ModConfig {
     public static volatile boolean enableVoidParticles = true;
     public static volatile boolean enableDeathTitle = true;
     public static volatile boolean enableReturnTitle = true;
+    public static volatile boolean enableDeathCameraFall = true;
+    public static volatile boolean enableDeathEyeClose = true;
     public static volatile boolean enableEyeOpenEffect = true;
     public static volatile boolean enableReviveAnimation = true;
+    public static volatile boolean enableRespawnOrbitAnimation = true;
     public static volatile ReviveAnimationStyle reviveAnimationStyle = ReviveAnimationStyle.AWAKENING;
 
     private static volatile net.neoforged.fml.config.ModConfig loadedConfig;
@@ -245,11 +261,12 @@ public final class ModConfig {
         return new ConfigSnapshot(
                 enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage, checkUpdates, autoInstallUpdates,
                 spawnX, spawnY, spawnZ, useSharedSpawn, preventDimensionEscape,
-                preserveInventory, preserveExperience, restorePlayerAbilities, returnToDeathLocation,
+                preserveInventory, preserveExperience, stashInventoryInDeathDimension, restorePlayerAbilities, returnToDeathLocation,
                 enableCooldown, cooldownDuration, showCooldownMessage, showCooldownActionbar, allowAdminBypass,
                 enableReturnSystem, returnMode, returnToOriginalDimension, returnToOriginalPosition, allowAdminReturn,
                 skipDeathScreen, enableVoidParticles, enableDeathTitle, enableReturnTitle,
-                enableEyeOpenEffect, enableReviveAnimation, reviveAnimationStyle
+                enableDeathCameraFall, enableDeathEyeClose,
+                enableEyeOpenEffect, enableReviveAnimation, enableRespawnOrbitAnimation, reviveAnimationStyle
         );
     }
 
@@ -271,6 +288,7 @@ public final class ModConfig {
 
         preserveInventory = s.preserveInventory();
         preserveExperience = s.preserveExperience();
+        stashInventoryInDeathDimension = s.stashInventoryInDeathDimension();
         restorePlayerAbilities = s.restorePlayerAbilities();
         returnToDeathLocation = s.returnToDeathLocation();
 
@@ -290,8 +308,11 @@ public final class ModConfig {
         enableVoidParticles = s.enableVoidParticles();
         enableDeathTitle = s.enableDeathTitle();
         enableReturnTitle = s.enableReturnTitle();
+        enableDeathCameraFall = s.enableDeathCameraFall();
+        enableDeathEyeClose = s.enableDeathEyeClose();
         enableEyeOpenEffect = s.enableEyeOpenEffect();
         enableReviveAnimation = s.enableReviveAnimation();
+        enableRespawnOrbitAnimation = s.enableRespawnOrbitAnimation();
         reviveAnimationStyle = s.reviveAnimationStyle();
 
         if (persistToDisk && SPEC.isLoaded()) {
@@ -310,6 +331,7 @@ public final class ModConfig {
 
             PRESERVE_INVENTORY.set(s.preserveInventory());
             PRESERVE_EXPERIENCE.set(s.preserveExperience());
+            STASH_INVENTORY_IN_DEATH_DIMENSION.set(s.stashInventoryInDeathDimension());
             RESTORE_PLAYER_ABILITIES.set(s.restorePlayerAbilities());
             RETURN_TO_DEATH_LOCATION.set(s.returnToDeathLocation());
 
@@ -329,8 +351,11 @@ public final class ModConfig {
             ENABLE_VOID_PARTICLES.set(s.enableVoidParticles());
             ENABLE_DEATH_TITLE.set(s.enableDeathTitle());
             ENABLE_RETURN_TITLE.set(s.enableReturnTitle());
+            ENABLE_DEATH_CAMERA_FALL.set(s.enableDeathCameraFall());
+            ENABLE_DEATH_EYE_CLOSE.set(s.enableDeathEyeClose());
             ENABLE_EYE_OPEN_EFFECT.set(s.enableEyeOpenEffect());
             ENABLE_REVIVE_ANIMATION.set(s.enableReviveAnimation());
+            ENABLE_RESPAWN_ORBIT_ANIMATION.set(s.enableRespawnOrbitAnimation());
             REVIVE_ANIMATION_STYLE.set(s.reviveAnimationStyle());
 
             SPEC.save();
@@ -353,6 +378,7 @@ public final class ModConfig {
 
         preserveInventory = PRESERVE_INVENTORY.get();
         preserveExperience = PRESERVE_EXPERIENCE.get();
+        stashInventoryInDeathDimension = STASH_INVENTORY_IN_DEATH_DIMENSION.get();
         restorePlayerAbilities = RESTORE_PLAYER_ABILITIES.get();
         returnToDeathLocation = RETURN_TO_DEATH_LOCATION.get();
 
@@ -372,8 +398,11 @@ public final class ModConfig {
         enableVoidParticles = ENABLE_VOID_PARTICLES.get();
         enableDeathTitle = ENABLE_DEATH_TITLE.get();
         enableReturnTitle = ENABLE_RETURN_TITLE.get();
+        enableDeathCameraFall = ENABLE_DEATH_CAMERA_FALL.get();
+        enableDeathEyeClose = ENABLE_DEATH_EYE_CLOSE.get();
         enableEyeOpenEffect = ENABLE_EYE_OPEN_EFFECT.get();
         enableReviveAnimation = ENABLE_REVIVE_ANIMATION.get();
+        enableRespawnOrbitAnimation = ENABLE_RESPAWN_ORBIT_ANIMATION.get();
         reviveAnimationStyle = REVIVE_ANIMATION_STYLE.get();
     }
 
@@ -398,6 +427,7 @@ public final class ModConfig {
             boolean preventDimensionEscape,
             boolean preserveInventory,
             boolean preserveExperience,
+            boolean stashInventoryInDeathDimension,
             boolean restorePlayerAbilities,
             boolean returnToDeathLocation,
             boolean enableCooldown,
@@ -414,8 +444,11 @@ public final class ModConfig {
             boolean enableVoidParticles,
             boolean enableDeathTitle,
             boolean enableReturnTitle,
+            boolean enableDeathCameraFall,
+            boolean enableDeathEyeClose,
             boolean enableEyeOpenEffect,
             boolean enableReviveAnimation,
+            boolean enableRespawnOrbitAnimation,
             ReviveAnimationStyle reviveAnimationStyle
     ) {
         public ConfigSnapshot sanitized() {
@@ -425,13 +458,14 @@ public final class ModConfig {
                     clampFinite(spawnY, MIN_Y, MAX_Y, 100.0),
                     clampFinite(spawnZ, MIN_COORD, MAX_COORD, 0.0),
                     useSharedSpawn, preventDimensionEscape,
-                    preserveInventory, preserveExperience, restorePlayerAbilities, returnToDeathLocation,
+                    preserveInventory, preserveExperience, stashInventoryInDeathDimension, restorePlayerAbilities, returnToDeathLocation,
                     enableCooldown, Math.max(0L, Math.min(MAX_COOLDOWN, cooldownDuration)),
                     showCooldownMessage, showCooldownActionbar, allowAdminBypass,
                     enableReturnSystem, returnMode != null ? returnMode : ReturnMode.MANUAL,
                     returnToOriginalDimension, returnToOriginalPosition, allowAdminReturn,
                     skipDeathScreen, enableVoidParticles, enableDeathTitle, enableReturnTitle,
-                    enableEyeOpenEffect, enableReviveAnimation,
+                    enableDeathCameraFall, enableDeathEyeClose,
+                    enableEyeOpenEffect, enableReviveAnimation, enableRespawnOrbitAnimation,
                     reviveAnimationStyle != null ? reviveAnimationStyle : ReviveAnimationStyle.AWAKENING
             );
         }
@@ -450,6 +484,7 @@ public final class ModConfig {
             buf.writeBoolean(preventDimensionEscape);
             buf.writeBoolean(preserveInventory);
             buf.writeBoolean(preserveExperience);
+            buf.writeBoolean(stashInventoryInDeathDimension);
             buf.writeBoolean(restorePlayerAbilities);
             buf.writeBoolean(returnToDeathLocation);
             buf.writeBoolean(enableCooldown);
@@ -466,8 +501,11 @@ public final class ModConfig {
             buf.writeBoolean(enableVoidParticles);
             buf.writeBoolean(enableDeathTitle);
             buf.writeBoolean(enableReturnTitle);
+            buf.writeBoolean(enableDeathCameraFall);
+            buf.writeBoolean(enableDeathEyeClose);
             buf.writeBoolean(enableEyeOpenEffect);
             buf.writeBoolean(enableReviveAnimation);
+            buf.writeBoolean(enableRespawnOrbitAnimation);
             buf.writeVarInt(reviveAnimationStyle != null ? reviveAnimationStyle.ordinal() : 0);
         }
 
@@ -489,12 +527,16 @@ public final class ModConfig {
                     buf.readBoolean(),
                     buf.readBoolean(),
                     buf.readBoolean(),
+                    buf.readBoolean(),
                     buf.readVarLong(),
                     buf.readBoolean(),
                     buf.readBoolean(),
                     buf.readBoolean(),
                     buf.readBoolean(),
                     ReturnMode.fromOrdinal(buf.readVarInt()),
+                    buf.readBoolean(),
+                    buf.readBoolean(),
+                    buf.readBoolean(),
                     buf.readBoolean(),
                     buf.readBoolean(),
                     buf.readBoolean(),

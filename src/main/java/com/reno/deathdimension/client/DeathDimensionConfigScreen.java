@@ -50,6 +50,7 @@ public final class DeathDimensionConfigScreen extends Screen {
     private boolean preventDimensionEscape;
     private boolean preserveInventory;
     private boolean preserveExperience;
+    private boolean stashInventoryInDeathDimension;
     private boolean restorePlayerAbilities;
     private boolean returnToDeathLocation;
     private boolean enableCooldown;
@@ -66,8 +67,11 @@ public final class DeathDimensionConfigScreen extends Screen {
     private boolean enableVoidParticles;
     private boolean enableDeathTitle;
     private boolean enableReturnTitle;
+    private boolean enableDeathCameraFall;
+    private boolean enableDeathEyeClose;
     private boolean enableEyeOpenEffect;
     private boolean enableReviveAnimation;
+    private boolean enableRespawnOrbitAnimation;
     private ReviveAnimationStyle reviveAnimationStyle;
 
     // Numeric input boxes on active tab
@@ -110,6 +114,7 @@ public final class DeathDimensionConfigScreen extends Screen {
         this.preventDimensionEscape = s.preventDimensionEscape();
         this.preserveInventory = s.preserveInventory();
         this.preserveExperience = s.preserveExperience();
+        this.stashInventoryInDeathDimension = s.stashInventoryInDeathDimension();
         this.restorePlayerAbilities = s.restorePlayerAbilities();
         this.returnToDeathLocation = s.returnToDeathLocation();
         this.enableCooldown = s.enableCooldown();
@@ -126,8 +131,11 @@ public final class DeathDimensionConfigScreen extends Screen {
         this.enableVoidParticles = s.enableVoidParticles();
         this.enableDeathTitle = s.enableDeathTitle();
         this.enableReturnTitle = s.enableReturnTitle();
+        this.enableDeathCameraFall = s.enableDeathCameraFall();
+        this.enableDeathEyeClose = s.enableDeathEyeClose();
         this.enableEyeOpenEffect = s.enableEyeOpenEffect();
         this.enableReviveAnimation = s.enableReviveAnimation();
+        this.enableRespawnOrbitAnimation = s.enableRespawnOrbitAnimation();
         this.reviveAnimationStyle = s.reviveAnimationStyle();
     }
 
@@ -174,9 +182,10 @@ public final class DeathDimensionConfigScreen extends Screen {
                 addToggle(rightX, rowStartY + rowStep, colW, "gui.deathdimension.opt.prevent_void_damage", preventVoidDamage, v -> preventVoidDamage = v);
                 addToggle(leftX, rowStartY + rowStep * 2, colW, "gui.deathdimension.opt.preserve_inventory", preserveInventory, v -> preserveInventory = v);
                 addToggle(rightX, rowStartY + rowStep * 2, colW, "gui.deathdimension.opt.preserve_experience", preserveExperience, v -> preserveExperience = v);
-                addToggle(leftX, rowStartY + rowStep * 3, colW, "gui.deathdimension.opt.restore_abilities", restorePlayerAbilities, v -> restorePlayerAbilities = v);
-                addToggle(rightX, rowStartY + rowStep * 3, colW, "gui.deathdimension.opt.check_updates", checkUpdates, v -> checkUpdates = v);
-                addToggle(leftX, rowStartY + rowStep * 4, colW, "gui.deathdimension.opt.auto_install_updates", autoInstallUpdates, v -> autoInstallUpdates = v);
+                addToggle(leftX, rowStartY + rowStep * 3, colW, "gui.deathdimension.opt.stash_inventory", stashInventoryInDeathDimension, v -> stashInventoryInDeathDimension = v);
+                addToggle(rightX, rowStartY + rowStep * 3, colW, "gui.deathdimension.opt.restore_abilities", restorePlayerAbilities, v -> restorePlayerAbilities = v);
+                addToggle(leftX, rowStartY + rowStep * 4, colW, "gui.deathdimension.opt.check_updates", checkUpdates, v -> checkUpdates = v);
+                addToggle(rightX, rowStartY + rowStep * 4, colW, "gui.deathdimension.opt.auto_install_updates", autoInstallUpdates, v -> autoInstallUpdates = v);
             }
             case DIMENSION -> {
                 this.spawnXBox = addNumberBox(leftX, rowStartY + 12, colW, Double.toString(spawnX));
@@ -212,13 +221,16 @@ public final class DeathDimensionConfigScreen extends Screen {
                 addToggle(rightX, rowStartY, colW, "gui.deathdimension.opt.void_particles", enableVoidParticles, v -> enableVoidParticles = v);
                 addToggle(leftX, rowStartY + rowStep, colW, "gui.deathdimension.opt.death_title", enableDeathTitle, v -> enableDeathTitle = v);
                 addToggle(rightX, rowStartY + rowStep, colW, "gui.deathdimension.opt.return_title", enableReturnTitle, v -> enableReturnTitle = v);
-                addToggle(leftX, rowStartY + rowStep * 2, colW, "gui.deathdimension.opt.eye_open_effect", enableEyeOpenEffect, v -> enableEyeOpenEffect = v);
-                addToggle(rightX, rowStartY + rowStep * 2, colW, "gui.deathdimension.opt.revive_animation", enableReviveAnimation, v -> enableReviveAnimation = v);
+                addToggle(leftX, rowStartY + rowStep * 2, colW, "gui.deathdimension.opt.death_camera_fall", enableDeathCameraFall, v -> enableDeathCameraFall = v);
+                addToggle(rightX, rowStartY + rowStep * 2, colW, "gui.deathdimension.opt.death_eye_close", enableDeathEyeClose, v -> enableDeathEyeClose = v);
+                addToggle(leftX, rowStartY + rowStep * 3, colW, "gui.deathdimension.opt.eye_open_effect", enableEyeOpenEffect, v -> enableEyeOpenEffect = v);
+                addToggle(rightX, rowStartY + rowStep * 3, colW, "gui.deathdimension.opt.revive_animation", enableReviveAnimation, v -> enableReviveAnimation = v);
+                addToggle(leftX, rowStartY + rowStep * 4, colW, "gui.deathdimension.opt.respawn_orbit_animation", enableRespawnOrbitAnimation, v -> enableRespawnOrbitAnimation = v);
                 this.addRenderableWidget(
                         CycleButton.<ReviveAnimationStyle>builder(style -> Component.translatable(style.translationKey()))
                                 .withValues(ReviveAnimationStyle.values())
                                 .withInitialValue(reviveAnimationStyle)
-                                .create(leftX, rowStartY + rowStep * 3, colW * 2 + colGap, 20,
+                                .create(rightX, rowStartY + rowStep * 4, colW, 20,
                                         Component.translatable("gui.deathdimension.opt.revive_style"),
                                         (btn, val) -> reviveAnimationStyle = val)
                 );
@@ -296,11 +308,12 @@ public final class DeathDimensionConfigScreen extends Screen {
         ModConfig.ConfigSnapshot snapshot = new ModConfig.ConfigSnapshot(
                 enableMod, enableDeathTeleport, enableFreeMovement, preventVoidDamage, checkUpdates, autoInstallUpdates,
                 spawnX, spawnY, spawnZ, useSharedSpawn, preventDimensionEscape,
-                preserveInventory, preserveExperience, restorePlayerAbilities, returnToDeathLocation,
+                preserveInventory, preserveExperience, stashInventoryInDeathDimension, restorePlayerAbilities, returnToDeathLocation,
                 enableCooldown, cooldownDuration, showCooldownMessage, showCooldownActionbar, allowAdminBypass,
                 enableReturnSystem, returnMode, returnToOriginalDimension, returnToOriginalPosition, allowAdminReturn,
                 skipDeathScreen, enableVoidParticles, enableDeathTitle, enableReturnTitle,
-                enableEyeOpenEffect, enableReviveAnimation, reviveAnimationStyle
+                enableDeathCameraFall, enableDeathEyeClose,
+                enableEyeOpenEffect, enableReviveAnimation, enableRespawnOrbitAnimation, reviveAnimationStyle
         ).sanitized();
 
         Minecraft mc = Minecraft.getInstance();

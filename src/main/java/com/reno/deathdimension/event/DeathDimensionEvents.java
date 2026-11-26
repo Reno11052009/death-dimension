@@ -31,6 +31,7 @@ import net.neoforged.neoforge.event.entity.living.LivingExperienceDropEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerRespawnPositionEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -43,6 +44,9 @@ public final class DeathDimensionEvents {
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onLivingDeath(LivingDeathEvent event) {
+        if (event.getEntity() instanceof ServerPlayer dyingPlayer) {
+            PlayerTeleportHandler.endReviveFlightGrace(dyingPlayer);
+        }
         if (event.isCanceled() || !ModConfig.enableMod || !ModConfig.enableDeathTeleport) {
             return;
         }
@@ -71,19 +75,23 @@ public final class DeathDimensionEvents {
         data.setPendingDeathTeleport(true);
 
         boolean keepInventory = player.serverLevel().getGameRules().getBoolean(GameRules.RULE_KEEPINVENTORY);
-        if (!keepInventory) {
-            if (ModConfig.preserveInventory) {
-                data.snapshotInventory(player);
-            }
-            if (ModConfig.preserveExperience) {
-                data.snapshotExperience(player);
-            }
+        boolean shouldSnapshotInventory = (!keepInventory && ModConfig.preserveInventory)
+                || (keepInventory && ModConfig.stashInventoryInDeathDimension);
+        boolean shouldSnapshotExperience = (!keepInventory && ModConfig.preserveExperience)
+                || (keepInventory && ModConfig.stashInventoryInDeathDimension);
+
+        // Guard with !hasSaved* so dying again inside DeathDimension never overwrites stashed items/XP.
+        if (shouldSnapshotInventory && !data.hasSavedInventory()) {
+            data.snapshotInventory(player);
+        }
+        if (shouldSnapshotExperience && !data.hasSavedExperience()) {
+            data.snapshotExperience(player);
         }
     }
 
     @SubscribeEvent
     public void onLivingDrops(LivingDropsEvent event) {
-        if (!ModConfig.enableMod || !ModConfig.preserveInventory) {
+        if (!ModConfig.enableMod) {
             return;
         }
         if (event.getEntity() instanceof ServerPlayer player) {
@@ -96,7 +104,7 @@ public final class DeathDimensionEvents {
 
     @SubscribeEvent
     public void onLivingExperienceDrop(LivingExperienceDropEvent event) {
-        if (!ModConfig.enableMod || !ModConfig.preserveExperience) {
+        if (!ModConfig.enableMod) {
             return;
         }
         if (event.getEntity() instanceof ServerPlayer player) {
@@ -114,6 +122,24 @@ public final class DeathDimensionEvents {
         }
         // Runs at LOWEST so NeoForge's AttachmentInternals (NORMAL) has already copied PLAYER_DEATH_DATA.
         PlayerDeathData data = newPlayer.getData(ModRegistries.PLAYER_DEATH_DATA.get());
+        boolean enteringDeathDim = ModConfig.enableMod
+                && ModConfig.enableDeathTeleport
+                && !isHardcore(newPlayer)
+                && (data.isPendingDeathTeleport()
+                || data.isInDeathDimension()
+                || PlayerTeleportHandler.isInDeathDimension(newPlayer));
+
+        if (enteringDeathDim && ModConfig.stashInventoryInDeathDimension) {
+            // Keep items and XP safely stored in PlayerDeathData until returning to the living world.
+            if (data.hasSavedInventory()) {
+                PlayerDeathData.clearLiveInventory(newPlayer);
+            }
+            if (data.hasSavedExperience()) {
+                PlayerDeathData.clearLiveExperience(newPlayer);
+            }
+            return;
+        }
+
         data.restoreInventoryAndClear(newPlayer);
         data.restoreExperienceAndClear(newPlayer);
     }
@@ -178,6 +204,7 @@ public final class DeathDimensionEvents {
             return;
         }
 
+        PlayerTeleportHandler.endReviveFlightGrace(player);
         PacketDistributor.sendToPlayer(player, new ConfigSyncPayload(ModConfig.captureSnapshot(), false));
         notifyUpdateIfAvailable(player);
 
@@ -187,8 +214,17 @@ public final class DeathDimensionEvents {
         // Edge case: disconnected after dying before respawn completed, then rejoined alive.
         if (!inDeathDim && data.isPendingDeathTeleport() && player.isAlive()
                 && ModConfig.enableMod && ModConfig.enableDeathTeleport) {
-            data.restoreInventoryAndClear(player);
-            data.restoreExperienceAndClear(player);
+            if (ModConfig.stashInventoryInDeathDimension) {
+                if (data.hasSavedInventory()) {
+                    PlayerDeathData.clearLiveInventory(player);
+                }
+                if (data.hasSavedExperience()) {
+                    PlayerDeathData.clearLiveExperience(player);
+                }
+            } else {
+                data.restoreInventoryAndClear(player);
+                data.restoreExperienceAndClear(player);
+            }
             data.setPendingDeathTeleport(false);
             PlayerTeleportHandler.enterDeathDimension(player, true);
             return;
@@ -245,7 +281,13 @@ public final class DeathDimensionEvents {
             }
         } else if (data.isInDeathDimension()) {
             PlayerTeleportHandler.restoreAbilities(player, data);
+            data.restoreInventoryAndClear(player);
+            data.restoreExperienceAndClear(player);
             data.clearDeathState();
+        } else if (!data.isPendingDeathTeleport() && (data.hasSavedInventory() || data.hasSavedExperience())) {
+            // Safety net: player is alive outside DeathDimension with stashed items or XP.
+            data.restoreInventoryAndClear(player);
+            data.restoreExperienceAndClear(player);
         }
     }
 
@@ -255,6 +297,7 @@ public final class DeathDimensionEvents {
             return;
         }
 
+        PlayerTeleportHandler.endReviveFlightGrace(player);
         PlayerDeathData data = player.getData(ModRegistries.PLAYER_DEATH_DATA.get());
         boolean inDeathDim = PlayerTeleportHandler.isInDeathDimension(player);
         if (!inDeathDim && !data.isInDeathDimension() && !data.isPendingDeathTeleport()) {
@@ -308,8 +351,12 @@ public final class DeathDimensionEvents {
             return;
         }
 
+        PlayerTeleportHandler.endReviveFlightGrace(player);
+
         if (event.getFrom().equals(ModRegistries.DEATH_DIMENSION)) {
             PlayerTeleportHandler.restoreAbilities(player, data);
+            data.restoreInventoryAndClear(player);
+            data.restoreExperienceAndClear(player);
             data.clearDeathState();
         } else if (event.getTo().equals(ModRegistries.DEATH_DIMENSION)) {
             if (!data.hasSavedAbilities()) {
@@ -351,7 +398,14 @@ public final class DeathDimensionEvents {
         if (!ModConfig.enableMod) {
             return;
         }
-        if (!(event.getEntity() instanceof ServerPlayer player) || !PlayerTeleportHandler.isInDeathDimension(player)) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        if (PlayerTeleportHandler.hasReviveFlightGrace(player) && event.getSource().is(DamageTypes.FALL)) {
+            event.setCanceled(true);
+            return;
+        }
+        if (!PlayerTeleportHandler.isInDeathDimension(player)) {
             return;
         }
 
@@ -367,11 +421,19 @@ public final class DeathDimensionEvents {
     }
 
     @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event) {
+        PlayerTeleportHandler.clearAllReviveFlights();
+    }
+
+    @SubscribeEvent
     public void onPlayerTick(PlayerTickEvent.Post event) {
-        if (!ModConfig.enableMod) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        if (!(event.getEntity() instanceof ServerPlayer player) || !PlayerTeleportHandler.isInDeathDimension(player)) {
+
+        PlayerTeleportHandler.tickReviveFlightGrace(player);
+
+        if (!ModConfig.enableMod || !PlayerTeleportHandler.isInDeathDimension(player)) {
             return;
         }
 

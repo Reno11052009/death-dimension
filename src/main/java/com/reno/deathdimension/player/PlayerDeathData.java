@@ -4,6 +4,7 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.protocol.game.ClientboundSetExperiencePacket;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
@@ -258,6 +259,10 @@ public class PlayerDeathData implements INBTSerializable<CompoundTag> {
         return hasSavedInventory;
     }
 
+    public int getSavedInventoryCount() {
+        return savedInventory.size();
+    }
+
     public void snapshotInventory(ServerPlayer player) {
         this.savedInventory = new ListTag();
         player.getInventory().save(this.savedInventory);
@@ -269,12 +274,34 @@ public class PlayerDeathData implements INBTSerializable<CompoundTag> {
             return;
         }
         player.getInventory().load(this.savedInventory);
+        player.getInventory().setChanged();
+        player.inventoryMenu.broadcastChanges();
+        player.inventoryMenu.sendAllDataToRemote();
         this.savedInventory = new ListTag();
         this.hasSavedInventory = false;
     }
 
+    public static void clearLiveInventory(ServerPlayer player) {
+        player.getInventory().clearContent();
+        player.getInventory().setChanged();
+        player.inventoryMenu.broadcastChanges();
+        player.inventoryMenu.sendAllDataToRemote();
+    }
+
     public boolean hasSavedExperience() {
         return hasSavedExperience;
+    }
+
+    public int getSavedExpLevel() {
+        return savedExpLevel;
+    }
+
+    public int getSavedTotalExp() {
+        return savedTotalExp;
+    }
+
+    public float getSavedExpProgress() {
+        return savedExpProgress;
     }
 
     public void snapshotExperience(ServerPlayer player) {
@@ -288,10 +315,26 @@ public class PlayerDeathData implements INBTSerializable<CompoundTag> {
         if (!this.hasSavedExperience) {
             return;
         }
-        player.experienceLevel = this.savedExpLevel;
+        player.setExperienceLevels(this.savedExpLevel);
         player.totalExperience = this.savedTotalExp;
         player.experienceProgress = this.savedExpProgress;
+        if (player.connection != null) {
+            player.connection.send(new ClientboundSetExperiencePacket(
+                    player.experienceProgress,
+                    player.totalExperience,
+                    player.experienceLevel
+            ));
+        }
         this.hasSavedExperience = false;
+    }
+
+    public static void clearLiveExperience(ServerPlayer player) {
+        player.setExperienceLevels(0);
+        player.totalExperience = 0;
+        player.experienceProgress = 0.0f;
+        if (player.connection != null) {
+            player.connection.send(new ClientboundSetExperiencePacket(0.0f, 0, 0));
+        }
     }
 
     public void clearDeathState() {

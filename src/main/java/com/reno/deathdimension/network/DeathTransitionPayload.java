@@ -43,7 +43,7 @@ public record DeathTransitionPayload(int entityId, byte transitionKind, byte ani
     }
 
     public static void registerPayloads(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("4").optional();
+        PayloadRegistrar registrar = event.registrar("7").optional();
         registrar.playToClient(TYPE, STREAM_CODEC, DeathTransitionPayload::handleOnClient);
         registrar.playToClient(ConfigSyncPayload.TYPE, ConfigSyncPayload.STREAM_CODEC, ConfigSyncPayload::handleOnClient);
         registrar.playToServer(ConfigUpdatePayload.TYPE, ConfigUpdatePayload.STREAM_CODEC, ConfigUpdatePayload::handleOnServer);

@@ -31,9 +31,20 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForgeMod;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
 public final class PlayerTeleportHandler {
     private static final ResourceLocation DEATH_FLIGHT_MODIFIER_ID =
             ResourceLocation.fromNamespaceAndPath(DeathDimension.MODID, "death_flight");
+    private static final ResourceLocation REVIVE_FLIGHT_MODIFIER_ID =
+            ResourceLocation.fromNamespaceAndPath(DeathDimension.MODID, "revive_flight");
+    private static final int REVIVE_ORBIT_GRACE_TICKS = 85;
+
+    private record ActiveReviveFlight(long endServerTick, boolean wasFlying) {}
+
+    private static final Map<UUID, ActiveReviveFlight> ACTIVE_REVIVE_FLIGHTS = new ConcurrentHashMap<>();
 
     private PlayerTeleportHandler() {}
 
@@ -59,6 +70,11 @@ public final class PlayerTeleportHandler {
         if (deathLevel == null) {
             DeathDimension.LOGGER.error("DeathDimension level '{}' is not loaded.", ModRegistries.DEATH_DIMENSION_ID);
             player.sendSystemMessage(Component.translatable("message.deathdimension.dimension_missing").withStyle(ChatFormatting.RED));
+            PlayerDeathData data = player.getData(ModRegistries.PLAYER_DEATH_DATA.get());
+            if (!isInDeathDimension(player)) {
+                data.restoreInventoryAndClear(player);
+                data.restoreExperienceAndClear(player);
+            }
             return false;
         }
 
@@ -167,12 +183,20 @@ public final class PlayerTeleportHandler {
         ServerLevel targetLevel = resolveReturnLevel(server, data);
         ReturnTarget targetPos = resolveReturnPosition(player, targetLevel, data);
 
+        ReviveAnimationStyle style = ModConfig.enableReviveAnimation ? ModConfig.reviveAnimationStyle : ReviveAnimationStyle.NONE;
+        boolean playOrbit = ModConfig.enableReviveAnimation && ModConfig.enableRespawnOrbitAnimation;
+
         restoreAbilities(player, data);
+        data.restoreInventoryAndClear(player);
+        data.restoreExperienceAndClear(player);
         data.clearDeathState();
 
         safeTeleport(player, data, targetLevel, targetPos.x, targetPos.y, targetPos.z, targetPos.yRot, targetPos.xRot);
-        // Brief revive grace period (3s) to prevent instant death-loops at hazardous death sites.
-        player.invulnerableTime = Math.max(player.invulnerableTime, 60);
+        if (playOrbit) {
+            startReviveFlightGrace(player, server);
+        }
+        // Brief revive grace period (4.0s during orbit, 3.0s otherwise) to prevent instant death-loops at hazardous death sites.
+        player.invulnerableTime = Math.max(player.invulnerableTime, playOrbit ? 80 : 60);
         player.clearFire();
         player.sendSystemMessage(Component.translatable("message.deathdimension.returned").withStyle(ChatFormatting.GREEN));
 
@@ -185,9 +209,10 @@ public final class PlayerTeleportHandler {
             );
         }
 
-        ReviveAnimationStyle style = ModConfig.enableReviveAnimation ? ModConfig.reviveAnimationStyle : ReviveAnimationStyle.NONE;
         if (style != ReviveAnimationStyle.NONE) {
             spawnReviveEffects(player, targetLevel, style);
+        }
+        if (style != ReviveAnimationStyle.NONE || playOrbit) {
             PacketDistributor.sendToPlayersTrackingEntityAndSelf(
                     player,
                     new DeathTransitionPayload(player.getId(), DeathTransitionPayload.KIND_RETURN_TO_LIFE, (byte) style.ordinal())
@@ -240,6 +265,62 @@ public final class PlayerTeleportHandler {
             }
             case NONE -> {}
         }
+    }
+
+    public static void startReviveFlightGrace(ServerPlayer player, MinecraftServer server) {
+        boolean wasFlying = player.getAbilities().flying;
+        AttributeInstance flightAttr = player.getAttribute(NeoForgeMod.CREATIVE_FLIGHT);
+        if (flightAttr != null && !flightAttr.hasModifier(REVIVE_FLIGHT_MODIFIER_ID)) {
+            flightAttr.addTransientModifier(new AttributeModifier(
+                    REVIVE_FLIGHT_MODIFIER_ID,
+                    1.0,
+                    AttributeModifier.Operation.ADD_VALUE
+            ));
+        }
+        player.getAbilities().flying = true;
+        player.fallDistance = 0.0f;
+        player.setDeltaMovement(Vec3.ZERO);
+        player.onUpdateAbilities();
+        ACTIVE_REVIVE_FLIGHTS.put(player.getUUID(), new ActiveReviveFlight(
+                server.getTickCount() + REVIVE_ORBIT_GRACE_TICKS,
+                wasFlying
+        ));
+    }
+
+    public static void tickReviveFlightGrace(ServerPlayer player) {
+        ActiveReviveFlight state = ACTIVE_REVIVE_FLIGHTS.get(player.getUUID());
+        if (state == null) {
+            return;
+        }
+        player.fallDistance = 0.0f;
+        MinecraftServer server = player.getServer();
+        if (server == null || server.getTickCount() >= state.endServerTick()) {
+            endReviveFlightGrace(player);
+        }
+    }
+
+    public static void endReviveFlightGrace(ServerPlayer player) {
+        ActiveReviveFlight state = ACTIVE_REVIVE_FLIGHTS.remove(player.getUUID());
+        AttributeInstance flightAttr = player.getAttribute(NeoForgeMod.CREATIVE_FLIGHT);
+        boolean hadModifier = flightAttr != null && flightAttr.hasModifier(REVIVE_FLIGHT_MODIFIER_ID);
+        if (hadModifier) {
+            flightAttr.removeModifier(REVIVE_FLIGHT_MODIFIER_ID);
+        }
+        if (state != null || hadModifier) {
+            if (!player.isCreative() && !player.isSpectator()) {
+                player.getAbilities().flying = player.mayFly() && (state != null && state.wasFlying());
+            }
+            player.fallDistance = 0.0f;
+            player.onUpdateAbilities();
+        }
+    }
+
+    public static boolean hasReviveFlightGrace(ServerPlayer player) {
+        return ACTIVE_REVIVE_FLIGHTS.containsKey(player.getUUID());
+    }
+
+    public static void clearAllReviveFlights() {
+        ACTIVE_REVIVE_FLIGHTS.clear();
     }
 
     public static void ensureDeathFlightAttribute(ServerPlayer player) {
